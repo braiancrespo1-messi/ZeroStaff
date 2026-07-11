@@ -1,6 +1,33 @@
 import React, { useState } from 'react';
 import { Users, Search, Plus, MapPin, Loader2, X } from 'lucide-react';
 
+const PROVINCES_MAP = {
+  1: "CABA",
+  2: "Buenos Aires",
+  3: "Catamarca",
+  4: "Córdoba",
+  5: "Corrientes",
+  6: "Chaco",
+  7: "Chubut",
+  8: "Entre Ríos",
+  9: "Formosa",
+  10: "Jujuy",
+  11: "La Pampa",
+  12: "La Rioja",
+  13: "Mendoza",
+  14: "Misiones",
+  15: "Neuquén",
+  16: "Río Negro",
+  17: "Salta",
+  18: "San Juan",
+  19: "San Luis",
+  20: "Santa Cruz",
+  21: "Santa Fe",
+  22: "Santiago del Estero",
+  23: "Tierra del Fuego",
+  24: "Tucumán"
+};
+
 export default function Suppliers({ suppliers, accounts, useAccounting, onAddSupplier }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -10,6 +37,7 @@ export default function Suppliers({ suppliers, accounts, useAccounting, onAddSup
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
   const [taxCondition, setTaxCondition] = useState('Responsable Inscripto');
+  const [province, setProvince] = useState('Buenos Aires');
   const [defaultAccount, setDefaultAccount] = useState(accounts[0]?.code || '6101');
   const [loading, setLoading] = useState(false);
 
@@ -46,6 +74,15 @@ export default function Suppliers({ suppliers, accounts, useAccounting, onAddSup
           cond = 'Exento';
         }
         setTaxCondition(cond);
+
+        // Map province ID or name
+        if (data.provinciaId && PROVINCES_MAP[data.provinciaId]) {
+          setProvince(PROVINCES_MAP[data.provinciaId]);
+        } else if (data.provincia) {
+          setProvince(data.provincia);
+        } else {
+          setProvince('Buenos Aires');
+        }
       } else {
         throw new Error(json.error || 'CUIT no encontrado en el padrón AFIP');
       }
@@ -66,6 +103,7 @@ export default function Suppliers({ suppliers, accounts, useAccounting, onAddSup
       name: name.trim(),
       address: address.trim() || 'Sin Domicilio Registrado',
       taxCondition: taxCondition,
+      province: province,
       defaultAccount: defaultAccount
     });
 
@@ -73,6 +111,7 @@ export default function Suppliers({ suppliers, accounts, useAccounting, onAddSup
     setCuit('');
     setName('');
     setAddress('');
+    setProvince('Buenos Aires');
     setDefaultAccount(accounts[0]?.code || '6101');
     setShowAddModal(false);
   };
@@ -154,6 +193,14 @@ export default function Suppliers({ suppliers, accounts, useAccounting, onAddSup
                   <span style={{ lineHeight: '1.4' }}>{sup.address}</span>
                 </div>
 
+                {/* Jurisdicción */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <div style={{ width: '13px', display: 'flex', justifyContent: 'center' }}>
+                    <span style={{ fontSize: '10px', color: 'hsl(var(--primary))', fontWeight: '800' }}>J</span>
+                  </div>
+                  <span>Jurisdicción: <strong style={{ color: 'hsl(var(--text-main))' }}>{sup.province || 'Buenos Aires'}</strong></span>
+                </div>
+
                 {/* Cuenta de Gasto */}
                 {useAccounting && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(168, 85, 247, 0.05)', border: '1px solid rgba(168, 85, 247, 0.12)', padding: '6px 10px', borderRadius: '6px', marginTop: '4px' }}>
@@ -229,19 +276,30 @@ export default function Suppliers({ suppliers, accounts, useAccounting, onAddSup
                   />
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '12px' }}>
-                  <div className="form-group">
-                    <label>Condición Fiscal (IVA)</label>
-                    <select 
-                      value={taxCondition}
-                      onChange={(e) => setTaxCondition(e.target.value)}
-                    >
-                      <option value="Responsable Inscripto">Responsable Inscripto</option>
-                      <option value="Monotributista">Monotributista</option>
-                      <option value="Exento">Exento</option>
-                    </select>
-                  </div>
-                </div>
+                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                   <div className="form-group">
+                     <label>Condición Fiscal (IVA)</label>
+                     <select 
+                       value={taxCondition}
+                       onChange={(e) => setTaxCondition(e.target.value)}
+                     >
+                       <option value="Responsable Inscripto">Responsable Inscripto</option>
+                       <option value="Monotributista">Monotributista</option>
+                       <option value="Exento">Exento</option>
+                     </select>
+                   </div>
+                   <div className="form-group">
+                     <label>Provincia / Jurisdicción</label>
+                     <select 
+                       value={province}
+                       onChange={(e) => setProvince(e.target.value)}
+                     >
+                       {Object.values(PROVINCES_MAP).map(p => (
+                         <option key={p} value={p}>{p}</option>
+                       ))}
+                     </select>
+                   </div>
+                 </div>
 
                 {useAccounting && (
                   <div className="form-group">

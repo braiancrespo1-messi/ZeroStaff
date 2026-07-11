@@ -60,6 +60,7 @@ export default function App() {
           name: 'DISTRIBUIDORA MUSTANG SRL',
           address: 'Av. Directorio 456, CABA',
           taxCondition: 'Responsable Inscripto',
+          province: 'CABA',
           defaultAccount: '6101'
         },
         {
@@ -67,6 +68,7 @@ export default function App() {
           name: 'TELECOM ARGENTINA S.A.',
           address: 'Alicia Moreau de Justo 50, CABA',
           taxCondition: 'Responsable Inscripto',
+          province: 'CABA',
           defaultAccount: '6104'
         },
         {
@@ -74,6 +76,7 @@ export default function App() {
           name: 'BRAI SRL',
           address: 'Av. Corrientes 1234, CABA',
           taxCondition: 'Responsable Inscripto',
+          province: 'CABA',
           defaultAccount: '6102'
         }
       ];

@@ -1,6 +1,33 @@
 import React, { useState, useEffect } from 'react';
 import { UploadCloud, FileText, CheckCircle2, AlertTriangle, Loader2, Sparkles, Plus, Search, X } from 'lucide-react';
 
+const PROVINCES_MAP = {
+  1: "CABA",
+  2: "Buenos Aires",
+  3: "Catamarca",
+  4: "Córdoba",
+  5: "Corrientes",
+  6: "Chaco",
+  7: "Chubut",
+  8: "Entre Ríos",
+  9: "Formosa",
+  10: "Jujuy",
+  11: "La Pampa",
+  12: "La Rioja",
+  13: "Mendoza",
+  14: "Misiones",
+  15: "Neuquén",
+  16: "Río Negro",
+  17: "Salta",
+  18: "San Juan",
+  19: "San Luis",
+  20: "Santa Cruz",
+  21: "Santa Fe",
+  22: "Santiago del Estero",
+  23: "Tierra del Fuego",
+  24: "Tucumán"
+};
+
 export default function Dashboard({ tenant, suppliers, accounts, useAccounting, onAddInvoice, onAddSupplier }) {
   const [tasks, setTasks] = useState([]);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
@@ -65,6 +92,7 @@ export default function Dashboard({ tenant, suppliers, accounts, useAccounting, 
   const [quickName, setQuickName] = useState('');
   const [quickAddress, setQuickAddress] = useState('');
   const [quickTaxCondition, setQuickTaxCondition] = useState('Responsable Inscripto');
+  const [quickProvince, setQuickProvince] = useState('Buenos Aires');
   const [quickAccount, setQuickAccount] = useState('6101');
   const [quickLoading, setQuickLoading] = useState(false);
 
@@ -499,6 +527,15 @@ export default function Dashboard({ tenant, suppliers, accounts, useAccounting, 
           cond = 'Exento';
         }
         setQuickTaxCondition(cond);
+
+        // Map province ID or name
+        if (data.provinciaId && PROVINCES_MAP[data.provinciaId]) {
+          setQuickProvince(PROVINCES_MAP[data.provinciaId]);
+        } else if (data.provincia) {
+          setQuickProvince(data.provincia);
+        } else {
+          setQuickProvince('Buenos Aires');
+        }
       } else {
         throw new Error(json.error || 'CUIT no encontrado en el padrón AFIP.');
       }
@@ -518,6 +555,7 @@ export default function Dashboard({ tenant, suppliers, accounts, useAccounting, 
       name: quickName,
       address: quickAddress || 'Av. de Mayo 789, CABA',
       taxCondition: quickTaxCondition,
+      province: quickProvince,
       defaultAccount: quickAccount
     };
 
@@ -534,6 +572,7 @@ export default function Dashboard({ tenant, suppliers, accounts, useAccounting, 
     setQuickCuit('');
     setQuickName('');
     setQuickAddress('');
+    setQuickProvince('Buenos Aires');
   };
 
   // CUIT mismatch validation warning display
@@ -1113,6 +1152,18 @@ export default function Dashboard({ tenant, suppliers, accounts, useAccounting, 
                   onChange={(e) => setQuickAddress(e.target.value)}
                   readOnly={!quickAddress}
                 />
+              </div>
+
+              <div className="form-group">
+                <label>Provincia / Jurisdicción (AFIP)</label>
+                <select 
+                  value={quickProvince}
+                  onChange={(e) => setQuickProvince(e.target.value)}
+                >
+                  {Object.values(PROVINCES_MAP).map(p => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
               </div>
 
               {useAccounting && (

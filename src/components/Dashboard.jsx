@@ -61,13 +61,109 @@ export default function Dashboard({ tenant, suppliers, accounts, onAddInvoice, o
     setShowSuggestions(false);
   };
 
-  // Simulate dropping files
+  // Extrae el texto embebido de un PDF usando pdfjsLib
+  const extraerTextoEmbebidoPdf = async (file) => {
+    try {
+      if (!window.pdfjsLib) {
+        throw new Error("pdfjsLib no cargado en el navegador");
+      }
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const paginas = Math.min(pdf.numPages, 3);
+      let texto = "";
+      for (let p = 1; p <= paginas; p++) {
+        const page = await pdf.getPage(p);
+        const contenido = await page.getTextContent();
+        const lineas = {};
+        contenido.items.forEach(item => {
+          const y = Math.round(item.transform[5] / 3) * 3;
+          const x = item.transform[4];
+          if (!lineas[y]) lineas[y] = [];
+          lineas[y].push({ x, str: item.str });
+        });
+        const yOrdenadas = Object.keys(lineas).map(Number).sort((a, b) => b - a);
+        const textoPagina = yOrdenadas.map(y =>
+          lineas[y].sort((a, b) => a.x - b.x).map(i => i.str).join(" ").replace(/\s+/g, " ").trim()
+        ).filter(l => l).join("\n");
+        texto += (p > 1 ? `\n\n--- PAGINA ${p} ---\n\n` : "") + textoPagina;
+      }
+      return texto.trim();
+    } catch (e) {
+      console.warn("[ZeroStaff Extraer Texto] Error al extraer texto del PDF:", e);
+      return "";
+    }
+  };
+
+  // Envia el texto al backend real de IA
+  const parsePdfWithRealIA = async (texto) => {
+    const res = await fetch("https://us-central1-tmc-backend-2f5c4.cloudfunctions.net/analizarComprobanteIAProxy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        textoEmbebido: texto,
+        cuitComprador: tenant.cuit || undefined
+      })
+    });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const json = await res.json();
+    if (!json.success || !json.data) {
+      throw new Error(json.error || "IA no pudo procesar");
+    }
+    return json.data;
+  };
+
+  const mapResponseToFields = (iaData) => {
+    const tipoLetraToInvoiceType = { "A": "1", "B": "2", "C": "3", "X": "17" };
+    const tipoLetra = iaData.tipoComprobante ? iaData.tipoComprobante.valor : null;
+    const invoiceType = tipoLetraToInvoiceType[tipoLetra] || "1";
+
+    const perceptions = Array.isArray(iaData.percepciones) ? iaData.percepciones.map(p => {
+      const c = String(p.concepto || "").toLowerCase();
+      let taxType = 'otros';
+      if (c.includes("iva") || c.includes("i.v.a.")) taxType = 'iva';
+      else if (c.includes("iibb") || c.includes("ingresos brutos") || c.includes("i.b.")) taxType = 'iibb';
+      return {
+        taxType,
+        importe: Number(p.importe) || 0
+      };
+    }) : [];
+
+    let percIva = 0;
+    let percIibb = 0;
+    let percOtros = 0;
+    perceptions.forEach(p => {
+      if (p.taxType === 'iva') percIva += p.importe;
+      else if (p.taxType === 'iibb') percIibb += p.importe;
+      else percOtros += p.importe;
+    });
+
+    return {
+      supplierName: (iaData.nombreProveedor && iaData.nombreProveedor.valor) || "PROVEEDOR DESCONOCIDO",
+      supplierCuit: String((iaData.cuit && iaData.cuit.valor) || "").replace(/\D/g, ""),
+      invoiceType,
+      pos: String((iaData.puntoVenta && iaData.puntoVenta.valor) || "00001"),
+      number: String((iaData.numero && iaData.numero.valor) || "00000001"),
+      dateEmission: (iaData.fecha && iaData.fecha.valor) || new Date().toISOString().split('T')[0],
+      dateDue: (iaData.fechaVencimiento && iaData.fechaVencimiento.valor) || new Date(Date.now() + 30*24*60*60*1000).toISOString().split('T')[0],
+      neto: String((iaData.neto && iaData.neto.valor) || 0),
+      iva: String((iaData.iva && iaData.iva.valor) || 0),
+      exento: String((iaData.exento && iaData.exento.valor) || 0),
+      percIva: String(percIva),
+      percIibb: String(percIibb),
+      percOtros: String(percOtros),
+      payType: 'cta_cte'
+    };
+  };
+
+  // Ingestión real de archivos
   const handleFileDrop = (e) => {
     e.preventDefault();
     const files = e.dataTransfer ? e.dataTransfer.files : e.target.files;
     if (!files || files.length === 0) return;
 
-    Array.from(files).forEach(file => {
+    Array.from(files).forEach(async (file) => {
       const taskId = 'task_' + Math.random().toString(36).substr(2, 9);
       const newTask = {
         id: taskId,
@@ -80,74 +176,100 @@ export default function Dashboard({ tenant, suppliers, accounts, onAddInvoice, o
       setTasks(prev => [newTask, ...prev]);
       setSelectedTaskId(taskId);
 
-      // Simulate AI parsing after 2 seconds
-      setTimeout(() => {
+      try {
+        let text = "";
+        if (file.name.toLowerCase().endsWith('.pdf')) {
+          text = await extraerTextoEmbebidoPdf(file);
+        }
+        
+        if (!text) {
+          throw new Error("No se pudo extraer texto embebido");
+        }
+
+        const iaData = await parsePdfWithRealIA(text);
+        const parsedData = mapResponseToFields(iaData);
+
+        // Actualizar cola con los datos reales leídos por la IA
         setTasks(prev => prev.map(t => {
           if (t.id !== taskId) return t;
-
-          // Generate simulated invoice details matching registered suppliers if possible
-          let parsedData = {
-            supplierName: 'DISTRIBUIDORA MUSTANG SRL',
-            supplierCuit: '30-71126159-9',
-            invoiceType: '1', // Factura A
-            pos: '00099',
-            number: '23125412',
-            dateEmission: new Date().toISOString().split('T')[0],
-            dateDue: new Date(Date.now() + 30*24*60*60*1000).toISOString().split('T')[0],
-            neto: '74380.17',
-            iva: '15619.83',
-            exento: '0.00',
-            percIva: '0.00',
-            percIibb: '0.00',
-            percOtros: '0.00',
-            payType: 'cta_cte'
+          return {
+            ...t,
+            status: 'ready',
+            progressText: 'Lectura IA exitosa',
+            data: parsedData
           };
+        }));
 
-          if (file.name.toLowerCase().includes('telecom') || file.name.toLowerCase().includes('factura b')) {
-            parsedData = {
-              supplierName: 'TELECOM ARGENTINA S.A.',
-              supplierCuit: '30-63945373-8',
-              invoiceType: '2', // Factura B
-              pos: '00004',
-              number: '92837493',
+      } catch (err) {
+        console.warn("[ZeroStaff IA] Fallo en la lectura real de IA. Usando simulador offline:", err.message);
+        
+        // Simulación offline si no hay conexión o no es PDF de texto
+        setTimeout(() => {
+          setTasks(prev => prev.map(t => {
+            if (t.id !== taskId) return t;
+
+            let parsedData = {
+              supplierName: 'DISTRIBUIDORA MUSTANG SRL',
+              supplierCuit: '30-71126159-9',
+              invoiceType: '1',
+              pos: '00099',
+              number: '23125412',
               dateEmission: new Date().toISOString().split('T')[0],
-              dateDue: new Date(Date.now() + 15*24*60*60*1000).toISOString().split('T')[0],
-              neto: '12396.69',
-              iva: '2603.31',
+              dateDue: new Date(Date.now() + 30*24*60*60*1000).toISOString().split('T')[0],
+              neto: '74380.17',
+              iva: '15619.83',
               exento: '0.00',
               percIva: '0.00',
               percIibb: '0.00',
               percOtros: '0.00',
               payType: 'cta_cte'
             };
-          } else if (file.name.toLowerCase().includes('factura x') || file.name.toLowerCase().includes('x')) {
-            parsedData = {
-              supplierName: 'BRAI SRL',
-              supplierCuit: '33-71126159-9',
-              invoiceType: '17', // Factura X
-              pos: '00001',
-              number: '00092837',
-              dateEmission: new Date().toISOString().split('T')[0],
-              dateDue: new Date().toISOString().split('T')[0],
-              neto: '90000.00',
-              iva: '0.00',
-              exento: '0.00',
-              percIva: '0.00',
-              percIibb: '0.00',
-              percOtros: '0.00',
-              payType: 'efectivo'
+
+            if (file.name.toLowerCase().includes('telecom') || file.name.toLowerCase().includes('factura b')) {
+              parsedData = {
+                supplierName: 'TELECOM ARGENTINA S.A.',
+                supplierCuit: '30-63945373-8',
+                invoiceType: '2',
+                pos: '00004',
+                number: '92837493',
+                dateEmission: new Date().toISOString().split('T')[0],
+                dateDue: new Date(Date.now() + 15*24*60*60*1000).toISOString().split('T')[0],
+                neto: '12396.69',
+                iva: '2603.31',
+                exento: '0.00',
+                percIva: '0.00',
+                percIibb: '0.00',
+                percOtros: '0.00',
+                payType: 'cta_cte'
+              };
+            } else if (file.name.toLowerCase().includes('factura x') || file.name.toLowerCase().includes('x')) {
+              parsedData = {
+                supplierName: 'BRAI SRL',
+                supplierCuit: '33-71126159-9',
+                invoiceType: '17',
+                pos: '00001',
+                number: '00092837',
+                dateEmission: new Date().toISOString().split('T')[0],
+                dateDue: new Date().toISOString().split('T')[0],
+                neto: '90000.00',
+                iva: '0.00',
+                exento: '0.00',
+                percIva: '0.00',
+                percIibb: '0.00',
+                percOtros: '0.00',
+                payType: 'efectivo'
+              };
+            }
+
+            return {
+              ...t,
+              status: 'ready',
+              progressText: 'Lectura exitosa (Simulado)',
+              data: parsedData
             };
-          }
-
-          return {
-            ...t,
-            status: 'ready',
-            progressText: 'Lectura exitosa',
-            data: parsedData
-          };
-        }));
-      }, 2000);
-
+          }));
+        }, 1500);
+      }
     });
   };
 

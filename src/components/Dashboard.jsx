@@ -27,6 +27,32 @@ export default function Dashboard({ tenant, suppliers, accounts, useAccounting, 
   // Payment Options
   const [payType, setPayType] = useState('cta_cte'); // cta_cte, efectivo, transferencia, electronico
 
+  // Detalle de Items state
+  const [items, setItems] = useState([]);
+
+  // Auto calculate Neto from items list
+  useEffect(() => {
+    if (items.length > 0) {
+      const sumNeto = items.reduce((acc, it) => acc + (Number(it.cantidad || 0) * Number(it.precioUnitario || 0)), 0);
+      setNeto(sumNeto.toFixed(2));
+    }
+  }, [items]);
+
+  const handleUpdateItem = (index, field, value) => {
+    setItems(prev => prev.map((it, idx) => {
+      if (idx !== index) return it;
+      return { ...it, [field]: value };
+    }));
+  };
+
+  const handleAddItem = () => {
+    setItems(prev => [...prev, { concepto: 'Nuevo Concepto', cantidad: 1, precioUnitario: 0 }]);
+  };
+
+  const handleDeleteItem = (index) => {
+    setItems(prev => prev.filter((_, idx) => idx !== index));
+  };
+
   // Autocomplete suggestions
   const [showSuggestions, setShowSuggestions] = useState(false);
   const filteredSuggestions = suppliers.filter(s => 
@@ -409,6 +435,7 @@ export default function Dashboard({ tenant, suppliers, accounts, useAccounting, 
       percIibb: parseFloat(percIibb),
       percOtros: parseFloat(percOtros),
       payType: payType,
+      items: items, // Pass items list
       isDemoMode: tenant.isDemoMode
     });
 
@@ -424,6 +451,7 @@ export default function Dashboard({ tenant, suppliers, accounts, useAccounting, 
     setPercIibb('0.00');
     setPercOtros('0.00');
     setTotal('0.00');
+    setItems([]);
   };
 
   const handleClearForm = () => {
@@ -440,6 +468,7 @@ export default function Dashboard({ tenant, suppliers, accounts, useAccounting, 
     setPercIibb('0.00');
     setPercOtros('0.00');
     setTotal('0.00');
+    setItems([]);
   };
 
   // AFIP Lookup for Quick Supplier
@@ -531,54 +560,72 @@ export default function Dashboard({ tenant, suppliers, accounts, useAccounting, 
         </div>
 
         <div className="panel-body">
-          {/* File Drag and Drop Zone */}
-          <div 
-            className="drop-zone"
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={handleFileDrop}
-            style={{ padding: '20px 15px', gap: '8px' }}
-          >
-            <UploadCloud size={24} style={{ color: 'hsl(var(--text-muted))' }} />
-            <div style={{ textAlign: 'center' }}>
-              <p style={{ fontSize: '12px', fontWeight: '600' }}>Arrastrá tus PDFs de compra acá</p>
+          {/* File Drag and Drop Zone (Only show if no files in queue) */}
+          {tasks.length === 0 && (
+            <div 
+              className="drop-zone"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleFileDrop}
+              style={{ padding: '20px 15px', gap: '8px' }}
+            >
+              <UploadCloud size={24} style={{ color: 'hsl(var(--text-muted))' }} />
+              <div style={{ textAlign: 'center' }}>
+                <p style={{ fontSize: '12px', fontWeight: '600' }}>Arrastrá tus PDFs de compra acá</p>
+              </div>
+              <input 
+                type="file" 
+                multiple 
+                onChange={handleFileDrop} 
+                style={{ display: 'none' }} 
+                id="file-input-dashboard"
+              />
+              <label htmlFor="file-input-dashboard" className="btn btn-secondary" style={{ height: '30px', padding: '0 10px', fontSize: '11px', cursor: 'pointer' }}>
+                Buscar Archivos
+              </label>
             </div>
-            <input 
-              type="file" 
-              multiple 
-              onChange={handleFileDrop} 
-              style={{ display: 'none' }} 
-              id="file-input-dashboard"
-            />
-            <label htmlFor="file-input-dashboard" className="btn btn-secondary" style={{ height: '30px', padding: '0 10px', fontSize: '11px', cursor: 'pointer' }}>
-              Buscar Archivos
-            </label>
-          </div>
+          )}
 
-          {/* Queue Tasks List (rendered horizontally/compactly to save vertical space for PDF) */}
-          <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '6px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-            {tasks.length === 0 ? (
-              <span style={{ fontSize: '11px', color: 'hsl(var(--text-muted))', padding: '8px 4px' }}>
-                No hay facturas cargadas hoy.
-              </span>
-            ) : (
-              tasks.map(task => (
-                <div 
-                  key={task.id}
-                  onClick={() => setSelectedTaskId(task.id)}
-                  className={`task-card ${selectedTaskId === task.id ? 'active' : ''}`}
-                  style={{ cursor: 'pointer', padding: '6px 12px', flexShrink: 0, gap: '8px', minWidth: '160px' }}
-                >
-                  <FileText size={14} style={{ color: 'hsl(var(--primary))' }} />
-                  <span style={{ fontSize: '11px', fontWeight: '600', maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {task.name}
-                  </span>
-                  {task.status === 'ready' && <span className="badge badge-success" style={{ fontSize: '9px', padding: '2px 4px' }}>Listo</span>}
-                  {task.status === 'processing' && <Loader2 size={10} className="rotate-spinner" />}
-                  {task.status === 'uploaded' && <span className="badge badge-info" style={{ fontSize: '9px', padding: '2px 4px' }}>Subido</span>}
-                </div>
-              ))
-            )}
-          </div>
+          {/* Queue Tasks Toolbar (Compact display when files are loaded) */}
+          {tasks.length > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+              {/* Horizontally scrollable list of tasks */}
+              <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', flex: 1, minWidth: 0, paddingRight: '10px' }}>
+                {tasks.map(task => (
+                  <div 
+                    key={task.id}
+                    onClick={() => setSelectedTaskId(task.id)}
+                    className={`task-card ${selectedTaskId === task.id ? 'active' : ''}`}
+                    style={{ cursor: 'pointer', padding: '6px 12px', flexShrink: 0, gap: '8px', minWidth: '150px' }}
+                  >
+                    <FileText size={14} style={{ color: 'hsl(var(--primary))' }} />
+                    <span style={{ fontSize: '11px', fontWeight: '600', maxWidth: '75px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {task.name}
+                    </span>
+                    {task.status === 'ready' && <span className="badge badge-success" style={{ fontSize: '9px', padding: '2px 4px' }}>Listo</span>}
+                    {task.status === 'processing' && <Loader2 size={10} className="rotate-spinner" />}
+                    {task.status === 'uploaded' && <span className="badge badge-info" style={{ fontSize: '9px', padding: '2px 4px' }}>Subido</span>}
+                  </div>
+                ))}
+              </div>
+
+              {/* Upload more button */}
+              <input 
+                type="file" 
+                multiple 
+                onChange={handleFileDrop} 
+                style={{ display: 'none' }} 
+                id="file-input-dashboard-more"
+              />
+              <label 
+                htmlFor="file-input-dashboard-more" 
+                className="btn btn-secondary" 
+                style={{ height: '28px', padding: '0 10px', fontSize: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}
+              >
+                <UploadCloud size={12} />
+                <span>Cargar más</span>
+              </label>
+            </div>
+          )}
 
           {/* Real PDF Document or Image Rendering */}
           {activeTask && activeTask.blobUrl ? (
@@ -893,6 +940,86 @@ export default function Dashboard({ tenant, suppliers, accounts, useAccounting, 
                     onChange={(e) => setPercOtros(e.target.value)} 
                     style={{ height: '32px', padding: '6px 10px' }}
                   />
+                </div>
+              </div>
+
+              {/* Detalle de Ítems */}
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: 'hsl(var(--text-muted))' }}>
+                    Detalle de Ítems ({items.length})
+                  </label>
+                  <button 
+                    type="button" 
+                    onClick={handleAddItem}
+                    className="btn btn-secondary" 
+                    style={{ height: '22px', fontSize: '10px', padding: '0 8px', gap: '4px' }}
+                  >
+                    <Plus size={10} />
+                    <span>Agregar Ítem</span>
+                  </button>
+                </div>
+
+                <div style={{ 
+                  maxHeight: '130px', 
+                  overflowY: 'auto', 
+                  display: 'flex', 
+                  flexDirection: 'column', 
+                  gap: '6px',
+                  paddingRight: '4px'
+                }}>
+                  {items.length === 0 ? (
+                    <span style={{ fontSize: '11px', color: 'hsl(var(--text-muted))', fontStyle: 'italic', padding: '4px 0' }}>
+                      No hay ítems cargados. Hacé clic en "Agregar Ítem".
+                    </span>
+                  ) : (
+                    items.map((it, idx) => (
+                      <div key={idx} style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                        <input 
+                          type="text" 
+                          value={it.concepto} 
+                          onChange={(e) => handleUpdateItem(idx, 'concepto', e.target.value)}
+                          style={{ flex: 2, height: '28px', padding: '4px 8px', fontSize: '11px', background: 'rgba(0,0,0,0.12)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '4px' }}
+                          placeholder="Descripción del concepto"
+                        />
+                        <input 
+                          type="number" 
+                          value={it.cantidad} 
+                          onChange={(e) => handleUpdateItem(idx, 'cantidad', e.target.value)}
+                          style={{ width: '48px', height: '28px', padding: '4px 2px', fontSize: '11px', textAlign: 'center', background: 'rgba(0,0,0,0.12)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '4px' }}
+                          placeholder="Cant"
+                        />
+                        <input 
+                          type="number" 
+                          value={it.precioUnitario} 
+                          onChange={(e) => handleUpdateItem(idx, 'precioUnitario', e.target.value)}
+                          style={{ width: '80px', height: '28px', padding: '4px 6px', fontSize: '11px', textAlign: 'right', background: 'rgba(0,0,0,0.12)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '4px' }}
+                          placeholder="P. Unit"
+                        />
+                        <div style={{ fontSize: '11px', fontWeight: '700', width: '70px', textAlign: 'right', color: 'hsl(var(--primary))' }}>
+                          ${(Number(it.cantidad || 0) * Number(it.precioUnitario || 0)).toFixed(2)}
+                        </div>
+                        <button 
+                          type="button" 
+                          onClick={() => handleDeleteItem(idx)}
+                          style={{ 
+                            padding: '0 6px', 
+                            height: '28px', 
+                            background: 'rgba(239, 68, 68, 0.08)', 
+                            color: 'rgb(239, 68, 68)', 
+                            border: '1px solid rgba(239, 68, 68, 0.15)', 
+                            borderRadius: '4px', 
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                          }}
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
 

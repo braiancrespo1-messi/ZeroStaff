@@ -19,7 +19,7 @@ export default function Suppliers({ suppliers, accounts, useAccounting, onAddSup
     String(sup.cuit || '').replace(/\D/g, '').includes(searchTerm.replace(/\D/g, ''))
   );
 
-  const handleAfipLookup = () => {
+  const handleAfipLookup = async () => {
     const cleanCuit = cuit.replace(/\D/g, '');
     if (cleanCuit.length !== 11) {
       alert('Por favor ingresa un CUIT válido de 11 dígitos.');
@@ -27,13 +27,34 @@ export default function Suppliers({ suppliers, accounts, useAccounting, onAddSup
     }
     setLoading(true);
 
-    // Simulate AFIP lookups
-    setTimeout(() => {
-      setName('LOGISTICA EXPRESS S.A.');
-      setAddress('Av. de Mayo 789, Piso 3, CABA');
-      setTaxCondition('Responsable Inscripto');
+    try {
+      const res = await fetch(`https://us-central1-tmc-backend-2f5c4.cloudfunctions.net/consultarCuitAfip?cuit=${cleanCuit}&ignoreYiqi=true`);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const json = await res.json();
+      if (json.success && json.data) {
+        const data = json.data;
+        setName(data.socialName || data.razonSocial || 'LOGISTICA EXPRESS S.A.');
+        setAddress(data.address || data.domicilio || 'Av. de Mayo 789, CABA');
+        
+        let cond = 'Responsable Inscripto';
+        const ivaRaw = String(data.ivaCondition || '').toLowerCase();
+        if (ivaRaw.includes('monotributo') || ivaRaw.includes('monotributista')) {
+          cond = 'Monotributista';
+        } else if (ivaRaw.includes('exento')) {
+          cond = 'Exento';
+        }
+        setTaxCondition(cond);
+      } else {
+        throw new Error(json.error || 'CUIT no encontrado en el padrón AFIP');
+      }
+    } catch (err) {
+      console.error("[ZeroStaff AFIP] Error en consulta de CUIT:", err);
+      alert(err.message || 'Error al conectar con la consulta de CUIT de AFIP.');
+    } finally {
       setLoading(false);
-    }, 1500);
+    }
   };
 
   const handleSubmit = (e) => {

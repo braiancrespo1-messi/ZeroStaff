@@ -61,6 +61,39 @@ export default function Dashboard({ tenant, suppliers, accounts, useAccounting, 
     setShowSuggestions(false);
   };
 
+  // Lee una imagen y la codifica a base64 (removiendo el prefijo data:image/*;base64,)
+  const readImageAsBase64 = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        resolve(reader.result.split(',')[1]);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // Convierte la primera página de un PDF a imagen base64 usando canvas
+  const convertPdfToImage = async (file) => {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const page = await pdf.getPage(1);
+      
+      const viewport = page.getViewport({ scale: 2.0 }); // escala alta para mejor legibilidad OCR
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
+      
+      await page.render({ canvasContext: context, viewport: viewport }).promise;
+      return canvas.toDataURL('image/jpeg').split(',')[1];
+    } catch (e) {
+      console.warn("[ZeroStaff Rasterizar] Error al renderizar PDF a imagen:", e);
+      return "";
+    }
+  };
+
   // Extrae el texto embebido de un PDF usando pdfjsLib
   const extraerTextoEmbebidoPdf = async (file) => {
     try {
@@ -68,7 +101,7 @@ export default function Dashboard({ tenant, suppliers, accounts, useAccounting, 
         throw new Error("pdfjsLib no cargado en el navegador");
       }
       const arrayBuffer = await file.arrayBuffer();
-      const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const pdf = await window.window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
       const paginas = Math.min(pdf.numPages, 3);
       let texto = "";
       for (let p = 1; p <= paginas; p++) {
@@ -94,13 +127,15 @@ export default function Dashboard({ tenant, suppliers, accounts, useAccounting, 
     }
   };
 
-  // Envia el texto al backend real de IA
-  const parsePdfWithRealIA = async (texto) => {
+  // Envia el texto o la imagen base64 al backend real de IA
+  const parseComprobanteWithRealIA = async (base64Image, mediaType, textoEmbebido = "") => {
     const res = await fetch("https://us-central1-tmc-backend-2f5c4.cloudfunctions.net/analizarComprobanteIAProxy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        textoEmbebido: texto,
+        imageBase64: textoEmbebido ? undefined : base64Image,
+        imageMediaType: mediaType || "image/jpeg",
+        textoEmbebido: textoEmbebido || undefined,
         cuitComprador: tenant.cuit || undefined
       })
     });
@@ -158,7 +193,7 @@ export default function Dashboard({ tenant, suppliers, accounts, useAccounting, 
     };
   };
 
-  // Ingestión real de archivos
+  // Ingestión real de archivos (PDF digitales, escaneados e imágenes)
   const handleFileDrop = (e) => {
     e.preventDefault();
     const files = e.dataTransfer ? e.dataTransfer.files : e.target.files;
@@ -172,26 +207,41 @@ export default function Dashboard({ tenant, suppliers, accounts, useAccounting, 
         status: 'processing', // processing, ready, uploaded, error
         progressText: 'Procesando con ZeroStaff AI...',
         data: null,
-        blobUrl: URL.createObjectURL(file) // Load local PDF blob representation
+        fileType: file.type,
+        blobUrl: URL.createObjectURL(file)
       };
 
       setTasks(prev => [newTask, ...prev]);
       setSelectedTaskId(taskId);
 
       try {
-        let text = "";
-        if (file.name.toLowerCase().endsWith('.pdf')) {
-          text = await extraerTextoEmbebidoPdf(file);
-        }
-        
-        if (!text) {
-          throw new Error("No se pudo extraer texto embebido");
+        let base64Image = "";
+        let renderedMediaType = "image/jpeg";
+        let textoEmbebido = "";
+
+        if (file.type === "application/pdf") {
+          textoEmbebido = await extraerTextoEmbebidoPdf(file);
+          const esDigital = textoEmbebido.length >= 150;
+          if (esDigital) {
+            console.log("[ZeroStaff] Procesando como PDF Digital:", file.name);
+          } else {
+            console.log("[ZeroStaff] PDF escaneado detectado. Rasterizando a imagen...");
+            textoEmbebido = "";
+            base64Image = await convertPdfToImage(file);
+            renderedMediaType = "image/jpeg";
+          }
+        } else if (file.type.startsWith("image/")) {
+          console.log("[ZeroStaff] Procesando como Imagen:", file.name);
+          base64Image = await readImageAsBase64(file);
+          renderedMediaType = file.type;
+        } else {
+          throw new Error("Formato de archivo no soportado. Usa PDF, JPEG o PNG.");
         }
 
-        const iaData = await parsePdfWithRealIA(text);
+        const iaData = await parseComprobanteWithRealIA(base64Image, renderedMediaType, textoEmbebido);
         const parsedData = mapResponseToFields(iaData);
 
-        // Actualizar cola con los datos reales leídos por la IA
+        // Actualizar cola con los datos leídos por la IA
         setTasks(prev => prev.map(t => {
           if (t.id !== taskId) return t;
           return {
@@ -205,13 +255,11 @@ export default function Dashboard({ tenant, suppliers, accounts, useAccounting, 
       } catch (err) {
         console.warn("[ZeroStaff IA] Fallo en la lectura real de IA. Usando simulador offline:", err.message);
         
-        // Simulación offline si no hay conexión o no es PDF de texto
+        // Simulación offline si falla
         setTimeout(() => {
           setTasks(prev => prev.map(t => {
             if (t.id !== taskId) return t;
 
-            // Para simular un CUIT incorrecto, si el archivo contiene "error" o "incorrecto",
-            // generamos un CUIT receptor distinto al del inquilino actual para probar la alerta.
             const incorrectCuit = file.name.toLowerCase().includes('error') || file.name.toLowerCase().includes('incorrecto') 
               ? '30111111112' 
               : tenant.cuit;
@@ -378,8 +426,24 @@ export default function Dashboard({ tenant, suppliers, accounts, useAccounting, 
     setTotal('0.00');
   };
 
-  // AFIP Lookup simulation for Quick Supplier
-  const handleAfipLookup = () => {
+  const handleClearForm = () => {
+    setSupplierInput('');
+    setSupplierCuit('');
+    setPos('');
+    setNumber('');
+    setDateEmission('');
+    setDateDue('');
+    setNeto('0.00');
+    setIva('0.00');
+    setExento('0.00');
+    setPercIva('0.00');
+    setPercIibb('0.00');
+    setPercOtros('0.00');
+    setTotal('0.00');
+  };
+
+  // AFIP Lookup for Quick Supplier
+  const handleAfipLookup = async () => {
     const cleanCuit = quickCuit.replace(/\D/g, '');
     if (cleanCuit.length !== 11) {
       alert('Ingresa un CUIT de 11 dígitos válido.');
@@ -387,12 +451,34 @@ export default function Dashboard({ tenant, suppliers, accounts, useAccounting, 
     }
     setQuickLoading(true);
 
-    setTimeout(() => {
-      setQuickName('LOGISTICA EXPRESS S.A.');
-      setQuickAddress('Av. de Mayo 789, Piso 3, CABA');
-      setQuickTaxCondition('Responsable Inscripto');
+    try {
+      const res = await fetch(`https://us-central1-tmc-backend-2f5c4.cloudfunctions.net/consultarCuitAfip?cuit=${cleanCuit}&ignoreYiqi=true`);
+      if (!res.ok) {
+        throw new Error(`Error HTTP: ${res.status}`);
+      }
+      const json = await res.json();
+      if (json.success && json.data) {
+        const data = json.data;
+        setQuickName(data.socialName || data.razonSocial || 'LOGISTICA EXPRESS S.A.');
+        setQuickAddress(data.address || data.domicilio || 'Av. de Mayo 789, CABA');
+        
+        let cond = 'Responsable Inscripto';
+        const ivaRaw = String(data.ivaCondition || '').toLowerCase();
+        if (ivaRaw.includes('monotributo') || ivaRaw.includes('monotributista')) {
+          cond = 'Monotributista';
+        } else if (ivaRaw.includes('exento')) {
+          cond = 'Exento';
+        }
+        setQuickTaxCondition(cond);
+      } else {
+        throw new Error(json.error || 'CUIT no encontrado en el padrón AFIP.');
+      }
+    } catch (err) {
+      console.error("[ZeroStaff AFIP] Error en consulta de CUIT:", err);
+      alert(err.message || 'Error al conectar con la consulta de CUIT de AFIP.');
+    } finally {
       setQuickLoading(false);
-    }, 1500);
+    }
   };
 
   const handleRegisterQuickSupplier = () => {
@@ -494,7 +580,7 @@ export default function Dashboard({ tenant, suppliers, accounts, useAccounting, 
             )}
           </div>
 
-          {/* Real PDF Document iframe Rendering */}
+          {/* Real PDF Document or Image Rendering */}
           {activeTask && activeTask.blobUrl ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1, minHeight: '320px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -502,17 +588,42 @@ export default function Dashboard({ tenant, suppliers, accounts, useAccounting, 
                   Comprobante: {activeTask.name}
                 </span>
               </div>
-              <iframe 
-                src={activeTask.blobUrl} 
-                style={{ 
-                  width: '100%', 
-                  flex: 1, 
-                  border: '1px solid rgba(255, 255, 255, 0.08)', 
-                  borderRadius: '12px', 
-                  background: '#fff' 
-                }} 
-                title="Visor Comprobante PDF"
-              />
+              {activeTask.fileType === 'application/pdf' ? (
+                <iframe 
+                  src={activeTask.blobUrl} 
+                  style={{ 
+                    width: '100%', 
+                    flex: 1, 
+                    border: '1px solid rgba(255, 255, 255, 0.08)', 
+                    borderRadius: '12px', 
+                    background: '#fff' 
+                  }} 
+                  title="Visor Comprobante PDF"
+                />
+              ) : (
+                <div style={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: '#fff',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  overflow: 'hidden',
+                  padding: '10px'
+                }}>
+                  <img 
+                    src={activeTask.blobUrl} 
+                    style={{ 
+                      maxWidth: '100%', 
+                      maxHeight: '100%', 
+                      objectFit: 'contain',
+                      borderRadius: '6px'
+                    }} 
+                    alt="Comprobante Imagen"
+                  />
+                </div>
+              )}
             </div>
           ) : (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'hsl(var(--text-muted))', gap: '8px', padding: '40px' }}>
@@ -526,11 +637,22 @@ export default function Dashboard({ tenant, suppliers, accounts, useAccounting, 
 
       {/* RIGHT PANEL: Form details */}
       <div className="panel">
-        <div className="panel-header">
-          <h2 className="panel-title">
+        <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 className="panel-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Sparkles size={18} style={{ color: 'hsl(var(--primary))' }} />
             <span>Datos Escaneados por IA</span>
           </h2>
+          {activeTask && (
+            <button 
+              type="button" 
+              onClick={handleClearForm}
+              className="btn btn-secondary"
+              style={{ height: '26px', fontSize: '11px', padding: '0 10px', gap: '4px', border: '1px solid rgba(255,255,255,0.08)' }}
+            >
+              <X size={12} />
+              <span>Limpiar</span>
+            </button>
+          )}
         </div>
 
         <div className="panel-body">

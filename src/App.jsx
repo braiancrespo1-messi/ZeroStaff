@@ -13,8 +13,11 @@ export default function App() {
   const [history, setHistory] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [accounts, setAccounts] = useState([]);
+  
+  // Accounting Module toggle state (persisted)
+  const [useAccounting, setUseAccounting] = useState(true);
 
-  // Load tenant session and initial data databases on startup
+  // Load tenant session and initial databases on startup
   useEffect(() => {
     // 1. Session load
     const savedTenant = localStorage.getItem('zerostaff_active_tenant');
@@ -22,7 +25,13 @@ export default function App() {
       setTenant(JSON.parse(savedTenant));
     }
 
-    // 2. Chart of Accounts load / default
+    // 2. Accounting Toggle setting load
+    const savedAccounting = localStorage.getItem('zerostaff_use_accounting');
+    if (savedAccounting !== null) {
+      setUseAccounting(JSON.parse(savedAccounting));
+    }
+
+    // 3. Chart of Accounts load / default
     const savedAccounts = localStorage.getItem('zerostaff_accounts');
     if (savedAccounts) {
       setAccounts(JSON.parse(savedAccounts));
@@ -40,7 +49,7 @@ export default function App() {
       localStorage.setItem('zerostaff_accounts', JSON.stringify(defaultAccounts));
     }
 
-    // 3. Supplier list load / default
+    // 4. Supplier list load / default
     const savedSuppliers = localStorage.getItem('zerostaff_suppliers');
     if (savedSuppliers) {
       setSuppliers(JSON.parse(savedSuppliers));
@@ -72,7 +81,7 @@ export default function App() {
       localStorage.setItem('zerostaff_suppliers', JSON.stringify(defaultSuppliers));
     }
 
-    // 4. Invoice History load / default
+    // 5. Invoice History load / default
     const savedHistory = localStorage.getItem('zerostaff_invoice_history');
     if (savedHistory) {
       setHistory(JSON.parse(savedHistory));
@@ -135,7 +144,7 @@ export default function App() {
     setHistory(updatedHistory);
     localStorage.setItem('zerostaff_invoice_history', JSON.stringify(updatedHistory));
 
-    // Update IA scan usage quota stats
+    // Update AI scan usage quota stats
     if (tenant) {
       const updatedTenant = {
         ...tenant,
@@ -156,6 +165,11 @@ export default function App() {
     const updatedAccounts = [...accounts, newAcc];
     setAccounts(updatedAccounts);
     localStorage.setItem('zerostaff_accounts', JSON.stringify(updatedAccounts));
+  };
+
+  const handleSetUseAccounting = (val) => {
+    setUseAccounting(val);
+    localStorage.setItem('zerostaff_use_accounting', JSON.stringify(val));
   };
 
   // AFIP Text files exporter (COMPRAS_CBTE & COMPRAS_ALICUOTAS)
@@ -317,40 +331,51 @@ export default function App() {
         onLogout={handleLogout} 
       />
 
-      {/* Main views rendering */}
+      {/* Main views rendering persistent with CSS style toggling */}
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        {currentView === 'dashboard' && (
+        
+        {/* 1. Ingest/Dashboard */}
+        <div style={{ display: currentView === 'dashboard' ? 'flex' : 'none', flex: 1, minHeight: 0 }}>
           <Dashboard 
             tenant={tenant} 
             suppliers={suppliers}
             accounts={accounts}
+            useAccounting={useAccounting}
             onAddInvoice={handleAddInvoice} 
             onAddSupplier={handleAddSupplier}
           />
-        )}
+        </div>
 
-        {currentView === 'suppliers' && (
+        {/* 2. Suppliers Directory */}
+        <div style={{ display: currentView === 'suppliers' ? 'flex' : 'none', flex: 1, minHeight: 0 }}>
           <Suppliers 
             suppliers={suppliers} 
             accounts={accounts}
+            useAccounting={useAccounting}
             onAddSupplier={handleAddSupplier}
           />
-        )}
+        </div>
 
-        {currentView === 'accounts' && (
+        {/* 3. Accounts plan */}
+        <div style={{ display: currentView === 'accounts' ? 'flex' : 'none', flex: 1, minHeight: 0 }}>
           <Accounts 
             accounts={accounts} 
+            useAccounting={useAccounting}
+            onSetUseAccounting={handleSetUseAccounting}
             onAddAccount={handleAddAccount}
           />
-        )}
+        </div>
 
-        {currentView === 'history' && (
+        {/* 4. History/AFIP IVA */}
+        <div style={{ display: currentView === 'history' ? 'flex' : 'none', flex: 1, minHeight: 0 }}>
           <History 
             isFullPage={true} 
             history={history} 
+            useAccounting={useAccounting}
             onExportAfip={handleExportAfip} 
           />
-        )}
+        </div>
+
       </main>
 
     </div>

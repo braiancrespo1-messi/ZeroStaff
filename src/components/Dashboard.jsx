@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { UploadCloud, FileText, CheckCircle2, AlertTriangle, Loader2, Sparkles, Plus, Search, X } from 'lucide-react';
 
-export default function Dashboard({ tenant, suppliers, accounts, onAddInvoice, onAddSupplier }) {
+export default function Dashboard({ tenant, suppliers, accounts, useAccounting, onAddInvoice, onAddSupplier }) {
   const [tasks, setTasks] = useState([]);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   
@@ -153,6 +153,7 @@ export default function Dashboard({ tenant, suppliers, accounts, onAddInvoice, o
       percIva: String(percIva),
       percIibb: String(percIibb),
       percOtros: String(percOtros),
+      cuitDestinatario: String((iaData.cuitDestinatario && iaData.cuitDestinatario.valor) || "").replace(/\D/g, ""),
       payType: 'cta_cte'
     };
   };
@@ -170,7 +171,8 @@ export default function Dashboard({ tenant, suppliers, accounts, onAddInvoice, o
         name: file.name,
         status: 'processing', // processing, ready, uploaded, error
         progressText: 'Procesando con ZeroStaff AI...',
-        data: null
+        data: null,
+        blobUrl: URL.createObjectURL(file) // Load local PDF blob representation
       };
 
       setTasks(prev => [newTask, ...prev]);
@@ -208,6 +210,12 @@ export default function Dashboard({ tenant, suppliers, accounts, onAddInvoice, o
           setTasks(prev => prev.map(t => {
             if (t.id !== taskId) return t;
 
+            // Para simular un CUIT incorrecto, si el archivo contiene "error" o "incorrecto",
+            // generamos un CUIT receptor distinto al del inquilino actual para probar la alerta.
+            const incorrectCuit = file.name.toLowerCase().includes('error') || file.name.toLowerCase().includes('incorrecto') 
+              ? '30111111112' 
+              : tenant.cuit;
+
             let parsedData = {
               supplierName: 'DISTRIBUIDORA MUSTANG SRL',
               supplierCuit: '30-71126159-9',
@@ -222,6 +230,7 @@ export default function Dashboard({ tenant, suppliers, accounts, onAddInvoice, o
               percIva: '0.00',
               percIibb: '0.00',
               percOtros: '0.00',
+              cuitDestinatario: incorrectCuit,
               payType: 'cta_cte'
             };
 
@@ -240,6 +249,7 @@ export default function Dashboard({ tenant, suppliers, accounts, onAddInvoice, o
                 percIva: '0.00',
                 percIibb: '0.00',
                 percOtros: '0.00',
+                cuitDestinatario: tenant.cuit,
                 payType: 'cta_cte'
               };
             } else if (file.name.toLowerCase().includes('factura x') || file.name.toLowerCase().includes('x')) {
@@ -257,6 +267,7 @@ export default function Dashboard({ tenant, suppliers, accounts, onAddInvoice, o
                 percIva: '0.00',
                 percIibb: '0.00',
                 percOtros: '0.00',
+                cuitDestinatario: tenant.cuit,
                 payType: 'efectivo'
               };
             }
@@ -307,6 +318,15 @@ export default function Dashboard({ tenant, suppliers, accounts, onAddInvoice, o
   const handleSaveInvoice = (e) => {
     e.preventDefault();
     if (!activeTask || activeTask.status !== 'ready') return;
+
+    // Check CUIT mismatch blocker
+    const isOfficial = invoiceType === '1' || invoiceType === '2' || invoiceType === '3';
+    const cuitDestLimpiado = String(activeTask.data?.cuitDestinatario || '').replace(/\D/g, '');
+    const cuitTenantLimpiado = String(tenant.cuit || '').replace(/\D/g, '');
+    if (isOfficial && cuitDestLimpiado && cuitTenantLimpiado && cuitDestLimpiado !== cuitTenantLimpiado) {
+      alert(`No se puede guardar: Este comprobante oficial está dirigido al CUIT ${cuitDestLimpiado}, que no coincide con el tuyo (${cuitTenantLimpiado}).`);
+      return;
+    }
 
     setTasks(prev => prev.map(t => {
       if (t.id !== selectedTaskId) return t;
@@ -362,7 +382,7 @@ export default function Dashboard({ tenant, suppliers, accounts, onAddInvoice, o
   const handleAfipLookup = () => {
     const cleanCuit = quickCuit.replace(/\D/g, '');
     if (cleanCuit.length !== 11) {
-      alert('Ingresa un CUIT válido de 11 dígitos.');
+      alert('Ingresa un CUIT de 11 dígitos válido.');
       return;
     }
     setQuickLoading(true);
@@ -401,15 +421,26 @@ export default function Dashboard({ tenant, suppliers, accounts, onAddInvoice, o
     setQuickAddress('');
   };
 
+  // CUIT mismatch validation warning display
+  let cuitValidationWarning = null;
+  if (activeTask && activeTask.data) {
+    const isOfficial = invoiceType === '1' || invoiceType === '2' || invoiceType === '3';
+    const cuitDestLimpiado = String(activeTask.data.cuitDestinatario || '').replace(/\D/g, '');
+    const cuitTenantLimpiado = String(tenant.cuit || '').replace(/\D/g, '');
+    if (isOfficial && cuitDestLimpiado && cuitTenantLimpiado && cuitDestLimpiado !== cuitTenantLimpiado) {
+      cuitValidationWarning = `¡Alerta de Destinatario! Este comprobante está emitido al CUIT comprador ${cuitDestLimpiado.replace(/(\d{2})(\d{8})(\d{1})/, '$1-$2-$3')} y no al CUIT de tu empresa (${cuitTenantLimpiado.replace(/(\d{2})(\d{8})(\d{1})/, '$1-$2-$3')}). La carga ha sido bloqueada.`;
+    }
+  }
+
   return (
     <div className="workspace-grid">
       
-      {/* LEFT PANEL: Ingestion & Tasks Queue */}
+      {/* LEFT PANEL: Ingestion & PDF Viewer */}
       <div className="panel">
         <div className="panel-header">
           <h2 className="panel-title">
             <UploadCloud size={18} style={{ color: 'hsl(var(--primary))' }} />
-            <span>Ingesta y Cola de Procesamiento</span>
+            <span>Ingesta y Visor del Comprobante</span>
           </h2>
         </div>
 
@@ -419,13 +450,11 @@ export default function Dashboard({ tenant, suppliers, accounts, onAddInvoice, o
             className="drop-zone"
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleFileDrop}
+            style={{ padding: '20px 15px', gap: '8px' }}
           >
-            <UploadCloud size={32} style={{ color: 'hsl(var(--text-muted))' }} />
+            <UploadCloud size={24} style={{ color: 'hsl(var(--text-muted))' }} />
             <div style={{ textAlign: 'center' }}>
-              <p style={{ fontSize: '13px', fontWeight: '600' }}>Arrastrá tus PDFs contables acá</p>
-              <p style={{ fontSize: '11px', color: 'hsl(var(--text-muted))', marginTop: '2px' }}>
-                O haz clic para explorar archivos
-              </p>
+              <p style={{ fontSize: '12px', fontWeight: '600' }}>Arrastrá tus PDFs de compra acá</p>
             </div>
             <input 
               type="file" 
@@ -434,74 +463,73 @@ export default function Dashboard({ tenant, suppliers, accounts, onAddInvoice, o
               style={{ display: 'none' }} 
               id="file-input-dashboard"
             />
-            <label htmlFor="file-input-dashboard" className="btn btn-secondary" style={{ height: '32px', padding: '0 12px', fontSize: '12px', cursor: 'pointer' }}>
+            <label htmlFor="file-input-dashboard" className="btn btn-secondary" style={{ height: '30px', padding: '0 10px', fontSize: '11px', cursor: 'pointer' }}>
               Buscar Archivos
             </label>
           </div>
 
-          {/* Queue Tasks List */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, overflowY: 'auto' }}>
+          {/* Queue Tasks List (rendered horizontally/compactly to save vertical space for PDF) */}
+          <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '6px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
             {tasks.length === 0 ? (
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'hsl(var(--text-muted))', gap: '8px', padding: '40px 0' }}>
-                <FileText size={24} style={{ opacity: 0.5 }} />
-                <span style={{ fontSize: '12px' }}>No hay comprobantes cargados en la cola de hoy.</span>
-              </div>
+              <span style={{ fontSize: '11px', color: 'hsl(var(--text-muted))', padding: '8px 4px' }}>
+                No hay facturas cargadas hoy.
+              </span>
             ) : (
               tasks.map(task => (
                 <div 
                   key={task.id}
                   onClick={() => setSelectedTaskId(task.id)}
                   className={`task-card ${selectedTaskId === task.id ? 'active' : ''}`}
-                  style={{ cursor: 'pointer' }}
+                  style={{ cursor: 'pointer', padding: '6px 12px', flexShrink: 0, gap: '8px', minWidth: '160px' }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-                    <FileText size={18} style={{ color: 'hsl(var(--primary))', flexShrink: 0 }} />
-                    <div style={{ minWidth: 0 }}>
-                      <p style={{ fontSize: '13px', fontWeight: '600', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {task.name}
-                      </p>
-                      <p style={{ fontSize: '11px', color: 'hsl(var(--text-muted))', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        {task.status === 'processing' && <Loader2 size={10} className="rotate-spinner" />}
-                        {task.status === 'uploaded' && <CheckCircle2 size={10} style={{ color: 'hsl(var(--success))' }} />}
-                        <span>{task.progressText}</span>
-                      </p>
-                    </div>
-                  </div>
-                  
-                  {task.status === 'ready' && (
-                    <span className="badge badge-success">Listo</span>
-                  )}
-                  {task.status === 'processing' && (
-                    <span className="badge badge-warning pulse">Analizando</span>
-                  )}
-                  {task.status === 'uploaded' && (
-                    <span className="badge badge-info">Cargado</span>
-                  )}
+                  <FileText size={14} style={{ color: 'hsl(var(--primary))' }} />
+                  <span style={{ fontSize: '11px', fontWeight: '600', maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {task.name}
+                  </span>
+                  {task.status === 'ready' && <span className="badge badge-success" style={{ fontSize: '9px', padding: '2px 4px' }}>Listo</span>}
+                  {task.status === 'processing' && <Loader2 size={10} className="rotate-spinner" />}
+                  {task.status === 'uploaded' && <span className="badge badge-info" style={{ fontSize: '9px', padding: '2px 4px' }}>Subido</span>}
                 </div>
               ))
             )}
           </div>
 
-          {/* Embedded Preview Info */}
-          {activeTask && (
-            <div className="glass" style={{ height: '80px', borderRadius: '8px', padding: '12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <FileText size={20} style={{ color: 'hsl(var(--primary))' }} />
-              <div style={{ minWidth: 0 }}>
-                <span style={{ fontSize: '10px', color: 'hsl(var(--text-muted))', display: 'block' }}>Vista previa de documento</span>
-                <span style={{ fontSize: '12px', fontWeight: '600', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeTask.name}</span>
+          {/* Real PDF Document iframe Rendering */}
+          {activeTask && activeTask.blobUrl ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1, minHeight: '320px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: 'hsl(var(--text-muted))' }}>
+                  Comprobante: {activeTask.name}
+                </span>
               </div>
+              <iframe 
+                src={activeTask.blobUrl} 
+                style={{ 
+                  width: '100%', 
+                  flex: 1, 
+                  border: '1px solid rgba(255, 255, 255, 0.08)', 
+                  borderRadius: '12px', 
+                  background: '#fff' 
+                }} 
+                title="Visor Comprobante PDF"
+              />
+            </div>
+          ) : (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'hsl(var(--text-muted))', gap: '8px', padding: '40px' }}>
+              <FileText size={32} style={{ opacity: 0.3 }} />
+              <p style={{ fontSize: '12px' }}>Selecciona un archivo de la cola para previsualizar el PDF.</p>
             </div>
           )}
 
         </div>
       </div>
 
-      {/* RIGHT PANEL: Simplified Form details */}
+      {/* RIGHT PANEL: Form details */}
       <div className="panel">
         <div className="panel-header">
           <h2 className="panel-title">
             <Sparkles size={18} style={{ color: 'hsl(var(--primary))' }} />
-            <span>Detalles del Comprobante (Lectura IA)</span>
+            <span>Datos Escaneados por IA</span>
           </h2>
         </div>
 
@@ -517,17 +545,25 @@ export default function Dashboard({ tenant, suppliers, accounts, onAddInvoice, o
               </p>
             </div>
           ) : (
-            <form onSubmit={handleSaveInvoice} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <form onSubmit={handleSaveInvoice} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               
-              {/* Supplier Section with Autocomplete Suggestions */}
-              <div className="form-group" style={{ marginBottom: '8px', position: 'relative' }}>
+              {/* Buyer CUIT Warning banner */}
+              {cuitValidationWarning && (
+                <div className="badge badge-danger" style={{ padding: '10px 14px', borderRadius: '8px', gap: '8px', display: 'flex', alignItems: 'center', fontSize: '11px', width: '100%', lineHeight: '1.4', whiteSpace: 'normal', textAlign: 'left' }}>
+                  <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+                  <span>{cuitValidationWarning}</span>
+                </div>
+              )}
+
+              {/* Supplier Section with Autocomplete */}
+              <div className="form-group" style={{ marginBottom: '6px', position: 'relative' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <label>Proveedor (Razón Social)</label>
                   <button 
                     type="button" 
                     onClick={() => setShowQuickSupplier(true)}
                     className="btn btn-secondary" 
-                    style={{ height: '22px', fontSize: '10px', padding: '0 8px', gap: '4px' }}
+                    style={{ height: '20px', fontSize: '10px', padding: '0 8px', gap: '4px' }}
                   >
                     <Plus size={10} />
                     <span>Alta Rápida</span>
@@ -548,7 +584,7 @@ export default function Dashboard({ tenant, suppliers, accounts, onAddInvoice, o
                 {showSuggestions && supplierInput && filteredSuggestions.length > 0 && (
                   <div className="glass" style={{
                     position: 'absolute',
-                    top: '56px',
+                    top: '52px',
                     left: 0,
                     right: 0,
                     zIndex: 10,
@@ -582,7 +618,7 @@ export default function Dashboard({ tenant, suppliers, accounts, onAddInvoice, o
               </div>
 
               {/* Grid 1: CUIT and Invoice Type */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 <div className="form-group">
                   <label>CUIT del Emisor</label>
                   <input 
@@ -607,8 +643,8 @@ export default function Dashboard({ tenant, suppliers, accounts, onAddInvoice, o
                 </div>
               </div>
 
-              {/* Grid 2: POS, Number and Expense Account */}
-              <div style={{ display: 'grid', gridTemplateColumns: '0.4fr 0.8fr 0.8fr', gap: '12px' }}>
+              {/* Grid 2: POS, Number and Optional Account Imputation */}
+              <div style={{ display: 'grid', gridTemplateColumns: useAccounting ? '0.4fr 0.8fr 0.8fr' : '0.4fr 1.6fr', gap: '10px' }}>
                 <div className="form-group">
                   <label>POS</label>
                   <input 
@@ -631,23 +667,25 @@ export default function Dashboard({ tenant, suppliers, accounts, onAddInvoice, o
                     required
                   />
                 </div>
-                <div className="form-group">
-                  <label>Imputación Contable</label>
-                  <select 
-                    value={expenseAccount} 
-                    onChange={(e) => setExpenseAccount(e.target.value)}
-                  >
-                    {accounts.map(acc => (
-                      <option key={acc.code} value={acc.code}>
-                        {acc.code} - {acc.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {useAccounting && (
+                  <div className="form-group">
+                    <label>Imputación Contable</label>
+                    <select 
+                      value={expenseAccount} 
+                      onChange={(e) => setExpenseAccount(e.target.value)}
+                    >
+                      {accounts.map(acc => (
+                        <option key={acc.code} value={acc.code}>
+                          {acc.code} - {acc.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
               {/* Grid 3: Dates */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 <div className="form-group">
                   <label>Fecha Emisión</label>
                   <input 
@@ -669,76 +707,82 @@ export default function Dashboard({ tenant, suppliers, accounts, onAddInvoice, o
               </div>
 
               {/* Tax totals fields */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', background: 'rgba(0,0,0,0.15)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.04)' }}>
-                <div className="form-group">
-                  <label>Neto Gravado</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', background: 'rgba(0,0,0,0.15)', padding: '8px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.04)' }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label style={{ fontSize: '9px' }}>Neto Gravado</label>
                   <input 
                     type="number" 
                     step="0.01" 
                     value={neto} 
                     onChange={(e) => setNeto(e.target.value)} 
+                    style={{ height: '32px', padding: '6px 10px' }}
                   />
                 </div>
-                <div className="form-group">
-                  <label>IVA Liquidado</label>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label style={{ fontSize: '9px' }}>IVA Liquidado</label>
                   <input 
                     type="number" 
                     step="0.01" 
                     value={iva} 
                     onChange={(e) => setIva(e.target.value)} 
+                    style={{ height: '32px', padding: '6px 10px' }}
                   />
                 </div>
-                <div className="form-group">
-                  <label>Exento / No Grav.</label>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label style={{ fontSize: '9px' }}>Exento / No Grav.</label>
                   <input 
                     type="number" 
                     step="0.01" 
                     value={exento} 
                     onChange={(e) => setExento(e.target.value)} 
+                    style={{ height: '32px', padding: '6px 10px' }}
                   />
                 </div>
               </div>
 
               {/* Perceptions fields */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', background: 'rgba(0,0,0,0.15)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.04)' }}>
-                <div className="form-group">
-                  <label>Perc. IVA</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', background: 'rgba(0,0,0,0.15)', padding: '8px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.04)' }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label style={{ fontSize: '9px' }}>Perc. IVA</label>
                   <input 
                     type="number" 
                     step="0.01" 
                     value={percIva} 
                     onChange={(e) => setPercIva(e.target.value)} 
+                    style={{ height: '32px', padding: '6px 10px' }}
                   />
                 </div>
-                <div className="form-group">
-                  <label>Perc. IIBB</label>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label style={{ fontSize: '9px' }}>Perc. IIBB</label>
                   <input 
                     type="number" 
                     step="0.01" 
                     value={percIibb} 
                     onChange={(e) => setPercIibb(e.target.value)} 
+                    style={{ height: '32px', padding: '6px 10px' }}
                   />
                 </div>
-                <div className="form-group">
-                  <label>Otros Impuestos</label>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label style={{ fontSize: '9px' }}>Otros Impuestos</label>
                   <input 
                     type="number" 
                     step="0.01" 
                     value={percOtros} 
                     onChange={(e) => setPercOtros(e.target.value)} 
+                    style={{ height: '32px', padding: '6px 10px' }}
                   />
                 </div>
               </div>
 
               {/* Total Display & Payment Options */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '4px 0', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '4px 0', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '8px' }}>
                 <span style={{ fontSize: '12px', fontWeight: '700', color: 'hsl(var(--text-muted))' }}>Importe Total</span>
                 <span style={{ fontSize: '18px', fontWeight: '800', color: 'hsl(var(--success))' }}>$ {total}</span>
               </div>
 
-              <div className="form-group">
-                <label>Forma de Pago (Imputación Comercial)</label>
-                <select value={payType} onChange={(e) => setPayType(e.target.value)}>
+              <div className="form-group" style={{ marginBottom: '6px' }}>
+                <label>Forma de Pago (Imputación)</label>
+                <select value={payType} onChange={(e) => setPayType(e.target.value)} style={{ height: '34px' }}>
                   <option value="cta_cte">Cuenta Corriente (Pendiente)</option>
                   <option value="efectivo">Efectivo (Caja General)</option>
                   <option value="transferencia">Transferencia (Cuenta Banco)</option>
@@ -747,11 +791,16 @@ export default function Dashboard({ tenant, suppliers, accounts, onAddInvoice, o
               </div>
 
               {activeTask.status === 'ready' ? (
-                <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '4px', height: '40px' }}>
-                  <span>Aprobar y Registrar Factura</span>
+                <button 
+                  type="submit" 
+                  className="btn btn-primary" 
+                  style={{ width: '100%', height: '38px' }}
+                  disabled={!!cuitValidationWarning}
+                >
+                  <span>Registrar Factura</span>
                 </button>
               ) : (
-                <div className="badge badge-success" style={{ width: '100%', padding: '12px', justifyContent: 'center', borderRadius: '8px', fontSize: '12px' }}>
+                <div className="badge badge-success" style={{ width: '100%', padding: '10px', justifyContent: 'center', borderRadius: '8px', fontSize: '12px' }}>
                   Comprobante Guardado con Éxito
                 </div>
               )}
@@ -817,19 +866,21 @@ export default function Dashboard({ tenant, suppliers, accounts, onAddInvoice, o
                 />
               </div>
 
-              <div className="form-group">
-                <label>Asignar Cuenta de Gasto</label>
-                <select 
-                  value={quickAccount}
-                  onChange={(e) => setQuickAccount(e.target.value)}
-                >
-                  {accounts.map(acc => (
-                    <option key={acc.code} value={acc.code}>
-                      {acc.code} - {acc.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {useAccounting && (
+                <div className="form-group">
+                  <label>Asignar Cuenta de Gasto</label>
+                  <select 
+                    value={quickAccount}
+                    onChange={(e) => setQuickAccount(e.target.value)}
+                  >
+                    {accounts.map(acc => (
+                      <option key={acc.code} value={acc.code}>
+                        {acc.code} - {acc.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <button 
                 type="button" 

@@ -2,37 +2,32 @@ import React, { useState } from 'react';
 import { Lock, Building, Key, Sparkles, AlertCircle, ArrowRight } from 'lucide-react';
 
 export default function Auth({ onLogin }) {
-  const [isRegistering, setIsRegistering] = useState(false);
   const [companyName, setCompanyName] = useState('');
   const [cuit, setCuit] = useState('');
   const [apiKey, setApiKey] = useState('');
-  const [isDemo, setIsDemo] = useState(false);
   const [error, setError] = useState('');
 
   const handleSubmit = (e) => {
     e.preventDefault();
     setError('');
 
-    if (!isDemo && !companyName) {
+    if (!companyName) {
       setError('Por favor completa el nombre de tu empresa.');
       return;
     }
 
-    if (!isDemo && !cuit.replace(/\D/g, '')) {
-      setError('Por favor ingresa un CUIT válido.');
+    const cleanedCuit = cuit.replace(/\D/g, '');
+    if (cleanedCuit.length !== 11) {
+      setError('Por favor ingresa un CUIT de 11 dígitos válido.');
       return;
     }
 
-    // Clean CUIT format
-    const cleanedCuit = cuit.replace(/\D/g, '');
-
-    // Simulating authentication & tenant creation
     const tenantData = {
-      id: isDemo ? 'demo-tenant' : 'tenant_' + Math.random().toString(36).substr(2, 9),
-      companyName: isDemo ? 'Empresa Demostración' : companyName,
-      cuit: isDemo ? '30-99999999-9' : cleanedCuit,
-      apiKey: isDemo ? 'demo_token' : apiKey,
-      isDemoMode: isDemo,
+      id: 'tenant_' + Math.random().toString(36).substr(2, 9),
+      companyName: companyName.trim(),
+      cuit: cleanedCuit,
+      apiKey: apiKey.trim() || 'demo_token',
+      isDemoMode: !apiKey.trim(), // Runs with local simulations if no key provided
       quotaUsed: 84,
       quotaMax: 100,
     };
@@ -41,22 +36,6 @@ export default function Auth({ onLogin }) {
     localStorage.setItem('zerostaff_active_tenant', JSON.stringify(tenantData));
     
     // Notify parent
-    onLogin(tenantData);
-  };
-
-  const startDemo = () => {
-    setIsDemo(true);
-    // Auto-submitting demo login
-    const tenantData = {
-      id: 'demo-tenant',
-      companyName: 'Empresa Demostración',
-      cuit: '30-99999999-9',
-      apiKey: 'demo_token',
-      isDemoMode: true,
-      quotaUsed: 84,
-      quotaMax: 100,
-    };
-    localStorage.setItem('zerostaff_active_tenant', JSON.stringify(tenantData));
     onLogin(tenantData);
   };
 
@@ -111,73 +90,58 @@ export default function Auth({ onLogin }) {
         )}
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {!isDemo && (
-            <>
-              <div className="form-group">
-                <label>Nombre de la Empresa</label>
-                <div style={{ position: 'relative' }}>
-                  <Building size={16} style={{ position: 'absolute', left: '12px', top: '11px', color: 'hsl(var(--text-muted))' }} />
-                  <input 
-                    type="text" 
-                    placeholder="Ej. Mi Empresa SRL" 
-                    value={companyName}
-                    onChange={(e) => setCompanyName(e.target.value)}
-                    style={{ paddingLeft: '38px' }}
-                    required
-                  />
-                </div>
-              </div>
+          <div className="form-group">
+            <label>Nombre de la Empresa</label>
+            <div style={{ position: 'relative' }}>
+              <Building size={16} style={{ position: 'absolute', left: '12px', top: '11px', color: 'hsl(var(--text-muted))' }} />
+              <input 
+                type="text" 
+                placeholder="Ej. Talleres Crespo SRL" 
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                style={{ paddingLeft: '38px' }}
+                required
+              />
+            </div>
+          </div>
 
-              <div className="form-group">
-                <label>CUIT de la Empresa</label>
-                <div style={{ position: 'relative' }}>
-                  <Building size={16} style={{ position: 'absolute', left: '12px', top: '11px', color: 'hsl(var(--text-muted))' }} />
-                  <input 
-                    type="text" 
-                    placeholder="Ej. 30-12345678-9" 
-                    value={cuit}
-                    onChange={(e) => setCuit(e.target.value)}
-                    style={{ paddingLeft: '38px' }}
-                    required
-                  />
-                </div>
-              </div>
+          <div className="form-group">
+            <label>CUIT de la Empresa</label>
+            <div style={{ position: 'relative' }}>
+              <Building size={16} style={{ position: 'absolute', left: '12px', top: '11px', color: 'hsl(var(--text-muted))' }} />
+              <input 
+                type="text" 
+                placeholder="Ej. 30-12345678-9" 
+                value={cuit}
+                onChange={(e) => setCuit(e.target.value)}
+                style={{ paddingLeft: '38px' }}
+                required
+              />
+            </div>
+          </div>
 
-              <div className="form-group">
-                <label>API Key de YiQi ERP (Opcional)</label>
-                <div style={{ position: 'relative' }}>
-                  <Key size={16} style={{ position: 'absolute', left: '12px', top: '11px', color: 'hsl(var(--text-muted))' }} />
-                  <input 
-                    type="password" 
-                    placeholder="Ingresa tu token de conexión" 
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    style={{ paddingLeft: '38px' }}
-                  />
-                </div>
-                <span style={{ fontSize: '10px', color: 'hsl(var(--text-muted) / 0.7)', marginTop: '2px' }}>
-                  Se almacena localmente de manera segura en tu navegador.
-                </span>
-              </div>
-            </>
-          )}
+          <div className="form-group">
+            <label>API Key de Conexión (Opcional)</label>
+            <div style={{ position: 'relative' }}>
+              <Key size={16} style={{ position: 'absolute', left: '12px', top: '11px', color: 'hsl(var(--text-muted))' }} />
+              <input 
+                type="password" 
+                placeholder="Ingresa tu token de conexión" 
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                style={{ paddingLeft: '38px' }}
+              />
+            </div>
+            <span style={{ fontSize: '10px', color: 'hsl(var(--text-muted) / 0.7)', marginTop: '2px' }}>
+              Dejar vacío para operar en piloto automático con motor de IA local.
+            </span>
+          </div>
 
           <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '10px' }}>
             <span>Comenzar ahora</span>
             <ArrowRight size={14} />
           </button>
         </form>
-
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', margin: '8px 0', fontSize: '12px', color: 'hsl(var(--text-muted))' }}>
-          <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.06)' }} />
-          <span>O probá la herramienta</span>
-          <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.06)' }} />
-        </div>
-
-        <button onClick={startDemo} className="btn btn-secondary" style={{ width: '100%', gap: '8px' }}>
-          <Sparkles size={14} style={{ color: 'hsl(var(--primary))' }} />
-          <span>Iniciar en Modo Demo (Acceso Rápido)</span>
-        </button>
 
       </div>
     </div>

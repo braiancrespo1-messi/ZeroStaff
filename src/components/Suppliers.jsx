@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Users, Search, Plus, MapPin, Loader2, X } from 'lucide-react';
 
-export default function Suppliers({ suppliers, accounts, onAddSupplier }) {
+export default function Suppliers({ suppliers, accounts, useAccounting, onAddSupplier }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   
@@ -134,12 +134,14 @@ export default function Suppliers({ suppliers, accounts, onAddSupplier }) {
                 </div>
 
                 {/* Cuenta de Gasto */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(168, 85, 247, 0.05)', border: '1px solid rgba(168, 85, 247, 0.12)', padding: '6px 10px', borderRadius: '6px', marginTop: '4px' }}>
-                  <span style={{ fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', color: 'hsl(var(--primary))' }}>Gasto:</span>
-                  <span style={{ fontWeight: '600', color: 'hsl(var(--text-main))' }}>
-                    {getAccountName(sup.defaultAccount)}
-                  </span>
-                </div>
+                {useAccounting && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(168, 85, 247, 0.05)', border: '1px solid rgba(168, 85, 247, 0.12)', padding: '6px 10px', borderRadius: '6px', marginTop: '4px' }}>
+                    <span style={{ fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', color: 'hsl(var(--primary))' }}>Gasto:</span>
+                    <span style={{ fontWeight: '600', color: 'hsl(var(--text-main))' }}>
+                      {getAccountName(sup.defaultAccount)}
+                    </span>
+                  </div>
+                )}
 
               </div>
 
@@ -220,19 +222,21 @@ export default function Suppliers({ suppliers, accounts, onAddSupplier }) {
                   </div>
                 </div>
 
-                <div className="form-group">
-                  <label>Asignación de Cuenta Contable (Gasto por Defecto)</label>
-                  <select 
-                    value={defaultAccount}
-                    onChange={(e) => setDefaultAccount(e.target.value)}
-                  >
-                    {accounts.map(acc => (
-                      <option key={acc.code} value={acc.code}>
-                        {acc.code} - {acc.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {useAccounting && (
+                  <div className="form-group">
+                    <label>Asignación de Cuenta Contable (Gasto por Defecto)</label>
+                    <select 
+                      value={defaultAccount}
+                      onChange={(e) => setDefaultAccount(e.target.value)}
+                    >
+                      {accounts.map(acc => (
+                        <option key={acc.code} value={acc.code}>
+                          {acc.code} - {acc.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '10px' }}>
                   <span>Guardar Ficha del Proveedor</span>

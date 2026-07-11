@@ -1,7 +1,7 @@
 import React from 'react';
-import { Sparkles, LogOut, History, Database, ShieldAlert } from 'lucide-react';
+import { Sparkles, LogOut, UploadCloud, Users, Database, History, HelpCircle } from 'lucide-react';
 
-export default function Header({ tenant, onLogout, onOpenHistory }) {
+export default function Header({ tenant, currentView, onViewChange, onLogout }) {
   const progressPercent = Math.min(100, (tenant.quotaUsed / tenant.quotaMax) * 100);
 
   return (
@@ -9,7 +9,7 @@ export default function Header({ tenant, onLogout, onOpenHistory }) {
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center',
-      padding: '12px 24px',
+      padding: '0 24px',
       borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
       height: '72px',
       flexShrink: 0
@@ -39,63 +39,78 @@ export default function Header({ tenant, onLogout, onOpenHistory }) {
         </div>
       </div>
 
-      {/* Center Tenant Status */}
+      {/* Center Navigation Tabs */}
+      <nav style={{ display: 'flex', gap: '6px', height: '100%', alignItems: 'center' }}>
+        <button 
+          onClick={() => onViewChange('dashboard')} 
+          className={`btn ${currentView === 'dashboard' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{ height: '36px', padding: '0 14px', gap: '6px' }}
+        >
+          <UploadCloud size={14} />
+          <span>Área de Carga</span>
+        </button>
+
+        <button 
+          onClick={() => onViewChange('suppliers')} 
+          className={`btn ${currentView === 'suppliers' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{ height: '36px', padding: '0 14px', gap: '6px' }}
+        >
+          <Users size={14} />
+          <span>Fichas de Proveedores</span>
+        </button>
+
+        <button 
+          onClick={() => onViewChange('accounts')} 
+          className={`btn ${currentView === 'accounts' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{ height: '36px', padding: '0 14px', gap: '6px' }}
+        >
+          <Database size={14} />
+          <span>Plan de Cuentas</span>
+        </button>
+
+        <button 
+          onClick={() => onViewChange('history')} 
+          className={`btn ${currentView === 'history' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{ height: '36px', padding: '0 14px', gap: '6px' }}
+        >
+          <History size={14} />
+          <span>Historial e IVA Digital</span>
+        </button>
+      </nav>
+
+      {/* Right User Stats & Actions */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
         
-        {/* Connection mode pill */}
-        {tenant.isDemoMode ? (
-          <span className="badge badge-warning" style={{ gap: '6px', fontSize: '11px' }}>
-            <Sparkles size={12} />
-            <span>Modo Demostración</span>
-          </span>
-        ) : (
-          <span className="badge badge-success" style={{ gap: '6px', fontSize: '11px' }}>
-            <Database size={12} />
-            <span>Conectado a YiQi</span>
-          </span>
-        )}
-
-        {/* Tenant Profile info */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-          <span style={{ fontSize: '13px', fontWeight: '600', color: 'hsl(var(--text-main))' }}>
+        {/* Profile Details */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', textAlign: 'right' }}>
+          <span style={{ fontSize: '12px', fontWeight: '700', color: 'hsl(var(--text-main))' }}>
             {tenant.companyName}
           </span>
-          <span style={{ fontSize: '11px', color: 'hsl(var(--text-muted))' }}>
+          <span style={{ fontSize: '10px', color: 'hsl(var(--text-muted))' }}>
             CUIT: {tenant.cuit}
           </span>
         </div>
 
-        {/* Quota Progress Bar */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '130px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', fontWeight: '600' }}>
-            <span style={{ color: 'hsl(var(--text-muted))' }}>Consumo de IA</span>
+        {/* Consumption Progress */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', width: '100px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', fontWeight: '700' }}>
+            <span style={{ color: 'hsl(var(--text-muted))' }}>Escaneos IA</span>
             <span style={{ color: 'hsl(var(--text-main))' }}>{tenant.quotaUsed}/{tenant.quotaMax}</span>
           </div>
-          <div style={{ width: '100%', height: '5px', background: 'rgba(255,255,255,0.06)', borderRadius: '10px', overflow: 'hidden' }}>
+          <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.06)', borderRadius: '10px', overflow: 'hidden' }}>
             <div style={{
               width: `${progressPercent}%`,
               height: '100%',
-              background: progressPercent > 90 ? 'hsl(var(--danger))' : 'hsl(var(--primary))',
+              background: 'hsl(var(--primary))',
               borderRadius: '10px',
               transition: 'width 0.4s ease'
             }} />
           </div>
         </div>
 
-      </div>
-
-      {/* Action Buttons */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        
-        {/* Open History Button */}
-        <button onClick={onOpenHistory} className="btn btn-secondary" style={{ gap: '6px', height: '36px' }} title="Ver Historial de Ingestas y Exportar Libro de IVA">
-          <History size={16} style={{ color: 'hsl(var(--primary))' }} />
-          <span>Historial e IVA Digital</span>
-        </button>
-
-        {/* Log Out Button */}
-        <button onClick={onLogout} className="btn btn-secondary btn-icon-only" style={{ height: '36px' }} title="Cerrar Sesión">
-          <LogOut size={16} style={{ color: 'hsl(var(--danger))' }} />
+        {/* Log Out */}
+        <button onClick={onLogout} className="btn btn-secondary btn-icon-only" style={{ height: '36px', width: '36px' }} title="Cerrar Sesión">
+          <LogOut size={14} style={{ color: 'hsl(var(--danger))' }} />
         </button>
 
       </div>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { UploadCloud, FileText, CheckCircle2, AlertTriangle, Loader2, Sparkles, Plus, Search } from 'lucide-react';
+import { UploadCloud, FileText, CheckCircle2, AlertTriangle, Loader2, Sparkles, Plus, Search, X } from 'lucide-react';
 
-export default function Dashboard({ tenant, onAddInvoice }) {
+export default function Dashboard({ tenant, suppliers, accounts, onAddInvoice, onAddSupplier }) {
   const [tasks, setTasks] = useState([]);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   
@@ -13,6 +13,7 @@ export default function Dashboard({ tenant, onAddInvoice }) {
   const [number, setNumber] = useState('');
   const [dateEmission, setDateEmission] = useState('');
   const [dateDue, setDateDue] = useState('');
+  const [expenseAccount, setExpenseAccount] = useState('6101');
   
   // Tax totals
   const [neto, setNeto] = useState('0.00');
@@ -26,10 +27,19 @@ export default function Dashboard({ tenant, onAddInvoice }) {
   // Payment Options
   const [payType, setPayType] = useState('cta_cte'); // cta_cte, efectivo, transferencia, electronico
 
+  // Autocomplete suggestions
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const filteredSuggestions = suppliers.filter(s => 
+    s.name.toLowerCase().includes(supplierInput.toLowerCase())
+  );
+
   // Quick Supplier Modal state
   const [showQuickSupplier, setShowQuickSupplier] = useState(false);
   const [quickCuit, setQuickCuit] = useState('');
   const [quickName, setQuickName] = useState('');
+  const [quickAddress, setQuickAddress] = useState('');
+  const [quickTaxCondition, setQuickTaxCondition] = useState('Responsable Inscripto');
+  const [quickAccount, setQuickAccount] = useState('6101');
   const [quickLoading, setQuickLoading] = useState(false);
 
   // Auto calculate Total when parts change
@@ -42,6 +52,14 @@ export default function Dashboard({ tenant, onAddInvoice }) {
     const po = parseFloat(percOtros) || 0;
     setTotal((n + v + e + pi + pib + po).toFixed(2));
   }, [neto, iva, exento, percIva, percIibb, percOtros]);
+
+  // Handle supplier selection from suggestions
+  const handleSelectSupplier = (sup) => {
+    setSupplierInput(sup.name);
+    setSupplierCuit(sup.cuit);
+    setExpenseAccount(sup.defaultAccount);
+    setShowSuggestions(false);
+  };
 
   // Simulate dropping files
   const handleFileDrop = (e) => {
@@ -62,12 +80,12 @@ export default function Dashboard({ tenant, onAddInvoice }) {
       setTasks(prev => [newTask, ...prev]);
       setSelectedTaskId(taskId);
 
-      // Simulate AI parsing after 2.5 seconds
+      // Simulate AI parsing after 2 seconds
       setTimeout(() => {
         setTasks(prev => prev.map(t => {
           if (t.id !== taskId) return t;
 
-          // Generate simulated invoice details
+          // Generate simulated invoice details matching registered suppliers if possible
           let parsedData = {
             supplierName: 'DISTRIBUIDORA MUSTANG SRL',
             supplierCuit: '30-71126159-9',
@@ -85,7 +103,6 @@ export default function Dashboard({ tenant, onAddInvoice }) {
             payType: 'cta_cte'
           };
 
-          // Vary some details based on file name just for demo value
           if (file.name.toLowerCase().includes('telecom') || file.name.toLowerCase().includes('factura b')) {
             parsedData = {
               supplierName: 'TELECOM ARGENTINA S.A.',
@@ -101,7 +118,7 @@ export default function Dashboard({ tenant, onAddInvoice }) {
               percIva: '0.00',
               percIibb: '0.00',
               percOtros: '0.00',
-              payType: 'transferencia'
+              payType: 'cta_cte'
             };
           } else if (file.name.toLowerCase().includes('factura x') || file.name.toLowerCase().includes('x')) {
             parsedData = {
@@ -112,7 +129,7 @@ export default function Dashboard({ tenant, onAddInvoice }) {
               number: '00092837',
               dateEmission: new Date().toISOString().split('T')[0],
               dateDue: new Date().toISOString().split('T')[0],
-              neto: '0.00',
+              neto: '90000.00',
               iva: '0.00',
               exento: '0.00',
               percIva: '0.00',
@@ -129,7 +146,7 @@ export default function Dashboard({ tenant, onAddInvoice }) {
             data: parsedData
           };
         }));
-      }, 2500);
+      }, 2000);
 
     });
   };
@@ -153,21 +170,28 @@ export default function Dashboard({ tenant, onAddInvoice }) {
       setPercIibb(data.percIibb);
       setPercOtros(data.percOtros);
       setPayType(data.payType);
-    }
-  }, [selectedTaskId, activeTask]);
 
-  // Submit invoice to local history & simulate ERP upload
+      // Lookup if supplier exists to autofill default expense account
+      const matchedSup = suppliers.find(s => s.cuit.replace(/\D/g, '') === data.supplierCuit.replace(/\D/g, ''));
+      if (matchedSup) {
+        setExpenseAccount(matchedSup.defaultAccount);
+      } else {
+        setExpenseAccount('6101'); // Fallback default
+      }
+    }
+  }, [selectedTaskId, activeTask, suppliers]);
+
+  // Submit invoice to local history & simulate success
   const handleSaveInvoice = (e) => {
     e.preventDefault();
     if (!activeTask || activeTask.status !== 'ready') return;
 
-    // Simulate saving/uploading to YiQi ERP
     setTasks(prev => prev.map(t => {
       if (t.id !== selectedTaskId) return t;
       return {
         ...t,
         status: 'uploaded',
-        progressText: `Subida exitosa (ID: ${Math.floor(Math.random() * 8000 + 1000)})`
+        progressText: `Cargada con éxito en base contable`
       };
     }));
 
@@ -181,7 +205,7 @@ export default function Dashboard({ tenant, onAddInvoice }) {
     // Add to history
     onAddInvoice({
       timestamp: Date.now(),
-      invoiceId: Math.floor(Math.random() * 8000 + 1000).toString(),
+      invoiceId: 'inv_' + Math.random().toString(36).substr(2, 9),
       supplierName: supplierInput,
       supplierCuit: supplierCuit,
       invoiceType: invoiceType,
@@ -214,25 +238,45 @@ export default function Dashboard({ tenant, onAddInvoice }) {
 
   // AFIP Lookup simulation for Quick Supplier
   const handleAfipLookup = () => {
-    if (!quickCuit || quickCuit.replace(/\D/g, '').length !== 11) {
+    const cleanCuit = quickCuit.replace(/\D/g, '');
+    if (cleanCuit.length !== 11) {
       alert('Ingresa un CUIT válido de 11 dígitos.');
       return;
     }
     setQuickLoading(true);
 
     setTimeout(() => {
-      setQuickName('PROVEEDOR TECNOLOGICO NACION S.A.');
+      setQuickName('LOGISTICA EXPRESS S.A.');
+      setQuickAddress('Av. de Mayo 789, Piso 3, CABA');
+      setQuickTaxCondition('Responsable Inscripto');
       setQuickLoading(false);
     }, 1500);
   };
 
   const handleRegisterQuickSupplier = () => {
     if (!quickName) return;
+
+    const newSup = {
+      cuit: quickCuit.replace(/\D/g, ''),
+      name: quickName,
+      address: quickAddress || 'Av. de Mayo 789, CABA',
+      taxCondition: quickTaxCondition,
+      defaultAccount: quickAccount
+    };
+
+    // Register supplier in parent state
+    onAddSupplier(newSup);
+
+    // Apply to current invoice form
     setSupplierInput(quickName);
-    setSupplierCuit(quickCuit);
+    setSupplierCuit(quickCuit.replace(/\D/g, ''));
+    setExpenseAccount(quickAccount);
+
+    // Reset Quick modal
     setShowQuickSupplier(false);
     setQuickCuit('');
     setQuickName('');
+    setQuickAddress('');
   };
 
   return (
@@ -258,7 +302,7 @@ export default function Dashboard({ tenant, onAddInvoice }) {
             <div style={{ textAlign: 'center' }}>
               <p style={{ fontSize: '13px', fontWeight: '600' }}>Arrastrá tus PDFs contables acá</p>
               <p style={{ fontSize: '11px', color: 'hsl(var(--text-muted))', marginTop: '2px' }}>
-                O haz clic para explorar archivos (Soporta múltiples facturas)
+                O haz clic para explorar archivos
               </p>
             </div>
             <input 
@@ -309,20 +353,20 @@ export default function Dashboard({ tenant, onAddInvoice }) {
                     <span className="badge badge-warning pulse">Analizando</span>
                   )}
                   {task.status === 'uploaded' && (
-                    <span className="badge badge-info">Subido</span>
+                    <span className="badge badge-info">Cargado</span>
                   )}
                 </div>
               ))
             )}
           </div>
 
-          {/* Embedded PDF Viewer Sim */}
+          {/* Embedded Preview Info */}
           {activeTask && (
-            <div className="glass" style={{ height: '140px', borderRadius: '8px', padding: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '8px' }}>
-              <FileText size={24} style={{ color: 'hsl(var(--text-muted))' }} />
-              <div style={{ textAlign: 'center' }}>
-                <span style={{ fontSize: '11px', color: 'hsl(var(--text-muted))', display: 'block' }}>Vista previa de documento</span>
-                <span style={{ fontSize: '12px', fontWeight: '600' }}>{activeTask.name}</span>
+            <div className="glass" style={{ height: '80px', borderRadius: '8px', padding: '12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <FileText size={20} style={{ color: 'hsl(var(--primary))' }} />
+              <div style={{ minWidth: 0 }}>
+                <span style={{ fontSize: '10px', color: 'hsl(var(--text-muted))', display: 'block' }}>Vista previa de documento</span>
+                <span style={{ fontSize: '12px', fontWeight: '600', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeTask.name}</span>
               </div>
             </div>
           )}
@@ -330,7 +374,7 @@ export default function Dashboard({ tenant, onAddInvoice }) {
         </div>
       </div>
 
-      {/* RIGHT PANEL: Dynamic Form details */}
+      {/* RIGHT PANEL: Simplified Form details */}
       <div className="panel">
         <div className="panel-header">
           <h2 className="panel-title">
@@ -351,12 +395,12 @@ export default function Dashboard({ tenant, onAddInvoice }) {
               </p>
             </div>
           ) : (
-            <form onSubmit={handleSaveInvoice} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <form onSubmit={handleSaveInvoice} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               
-              {/* Supplier Section with Quick Add */}
-              <div className="form-group" style={{ marginBottom: '8px' }}>
+              {/* Supplier Section with Autocomplete Suggestions */}
+              <div className="form-group" style={{ marginBottom: '8px', position: 'relative' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <label>Proveedor</label>
+                  <label>Proveedor (Razón Social)</label>
                   <button 
                     type="button" 
                     onClick={() => setShowQuickSupplier(true)}
@@ -370,16 +414,55 @@ export default function Dashboard({ tenant, onAddInvoice }) {
                 <input 
                   type="text" 
                   value={supplierInput} 
-                  onChange={(e) => setSupplierInput(e.target.value)} 
-                  placeholder="Razón Social del Proveedor"
+                  onChange={(e) => {
+                    setSupplierInput(e.target.value);
+                    setShowSuggestions(true);
+                  }} 
+                  placeholder="Escribe para buscar proveedor..."
                   required
                 />
+                
+                {/* Suggestions List Dropdown */}
+                {showSuggestions && supplierInput && filteredSuggestions.length > 0 && (
+                  <div className="glass" style={{
+                    position: 'absolute',
+                    top: '56px',
+                    left: 0,
+                    right: 0,
+                    zIndex: 10,
+                    borderRadius: '8px',
+                    maxHeight: '150px',
+                    overflowY: 'auto',
+                    boxShadow: '0 10px 20px rgba(0,0,0,0.3)',
+                    background: 'hsl(var(--card))',
+                    border: '1px solid hsl(var(--card-border))'
+                  }}>
+                    {filteredSuggestions.map(sup => (
+                      <div 
+                        key={sup.cuit}
+                        onClick={() => handleSelectSupplier(sup)}
+                        style={{
+                          padding: '10px 14px',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          borderBottom: '1px solid rgba(255,255,255,0.04)'
+                        }}
+                        className="suggestion-item"
+                        onMouseEnter={(e) => e.target.style.background = 'rgba(255,255,255,0.04)'}
+                        onMouseLeave={(e) => e.target.style.background = 'none'}
+                      >
+                        <div style={{ fontWeight: '600' }}>{sup.name}</div>
+                        <div style={{ fontSize: '10px', color: 'hsl(var(--text-muted))' }}>CUIT: {sup.cuit}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Grid 1: CUIT and Invoice Type */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div className="form-group">
-                  <label>CUIT</label>
+                  <label>CUIT del Emisor</label>
                   <input 
                     type="text" 
                     value={supplierCuit} 
@@ -402,10 +485,10 @@ export default function Dashboard({ tenant, onAddInvoice }) {
                 </div>
               </div>
 
-              {/* Grid 2: POS and Number */}
-              <div style={{ display: 'grid', gridTemplateColumns: '0.4fr 1.6fr', gap: '12px' }}>
+              {/* Grid 2: POS, Number and Expense Account */}
+              <div style={{ display: 'grid', gridTemplateColumns: '0.4fr 0.8fr 0.8fr', gap: '12px' }}>
                 <div className="form-group">
-                  <label>Pto. Venta</label>
+                  <label>POS</label>
                   <input 
                     type="text" 
                     value={pos} 
@@ -416,15 +499,28 @@ export default function Dashboard({ tenant, onAddInvoice }) {
                   />
                 </div>
                 <div className="form-group">
-                  <label>Número Factura</label>
+                  <label>Número</label>
                   <input 
                     type="text" 
                     value={number} 
                     onChange={(e) => setNumber(e.target.value)} 
-                    placeholder="00000001"
+                    placeholder="23125412"
                     maxLength={20}
                     required
                   />
+                </div>
+                <div className="form-group">
+                  <label>Imputación Contable</label>
+                  <select 
+                    value={expenseAccount} 
+                    onChange={(e) => setExpenseAccount(e.target.value)}
+                  >
+                    {accounts.map(acc => (
+                      <option key={acc.code} value={acc.code}>
+                        {acc.code} - {acc.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -451,7 +547,7 @@ export default function Dashboard({ tenant, onAddInvoice }) {
               </div>
 
               {/* Tax totals fields */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', background: 'rgba(0,0,0,0.15)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.04)' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', background: 'rgba(0,0,0,0.15)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.04)' }}>
                 <div className="form-group">
                   <label>Neto Gravado</label>
                   <input 
@@ -482,7 +578,7 @@ export default function Dashboard({ tenant, onAddInvoice }) {
               </div>
 
               {/* Perceptions fields */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', background: 'rgba(0,0,0,0.15)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.04)' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', background: 'rgba(0,0,0,0.15)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.04)' }}>
                 <div className="form-group">
                   <label>Perc. IVA</label>
                   <input 
@@ -513,13 +609,13 @@ export default function Dashboard({ tenant, onAddInvoice }) {
               </div>
 
               {/* Total Display & Payment Options */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '6px 0', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '12px' }}>
-                <span style={{ fontSize: '13px', fontWeight: '700', color: 'hsl(var(--text-muted))' }}>Importe Total</span>
-                <span style={{ fontSize: '20px', fontWeight: '800', color: 'hsl(var(--success))' }}>$ {total}</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '4px 0', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '10px' }}>
+                <span style={{ fontSize: '12px', fontWeight: '700', color: 'hsl(var(--text-muted))' }}>Importe Total</span>
+                <span style={{ fontSize: '18px', fontWeight: '800', color: 'hsl(var(--success))' }}>$ {total}</span>
               </div>
 
               <div className="form-group">
-                <label>Forma de Pago (Imputación Inmediata)</label>
+                <label>Forma de Pago (Imputación Comercial)</label>
                 <select value={payType} onChange={(e) => setPayType(e.target.value)}>
                   <option value="cta_cte">Cuenta Corriente (Pendiente)</option>
                   <option value="efectivo">Efectivo (Caja General)</option>
@@ -529,12 +625,12 @@ export default function Dashboard({ tenant, onAddInvoice }) {
               </div>
 
               {activeTask.status === 'ready' ? (
-                <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '6px', height: '42px' }}>
-                  <span>Aprobar y Registrar en ERP</span>
+                <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '4px', height: '40px' }}>
+                  <span>Aprobar y Registrar Factura</span>
                 </button>
               ) : (
                 <div className="badge badge-success" style={{ width: '100%', padding: '12px', justifyContent: 'center', borderRadius: '8px', fontSize: '12px' }}>
-                  Comprobante Subido con éxito a YiQi ERP
+                  Comprobante Guardado con Éxito
                 </div>
               )}
 
@@ -546,20 +642,21 @@ export default function Dashboard({ tenant, onAddInvoice }) {
       {/* Quick Supplier AFIP Lookup Modal */}
       {showQuickSupplier && (
         <div className="modal-overlay">
-          <div className="modal" style={{ width: '380px' }}>
+          <div className="modal" style={{ width: '400px' }}>
             <div className="modal-header">
               <h4 style={{ fontWeight: 700 }}>Alta Rápida de Proveedor</h4>
               <button onClick={() => setShowQuickSupplier(false)} className="btn btn-secondary btn-icon-only" style={{ background: 'none', border: 'none', padding: 0 }}>
                 <X size={16} />
               </button>
             </div>
-            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              
               <div className="form-group">
                 <label>CUIT (Sin guiones)</label>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <input 
                     type="text" 
-                    placeholder="30711261599" 
+                    placeholder="Ej. 30711261599" 
                     value={quickCuit}
                     onChange={(e) => setQuickCuit(e.target.value)}
                   />
@@ -587,14 +684,39 @@ export default function Dashboard({ tenant, onAddInvoice }) {
                 />
               </div>
 
+              <div className="form-group">
+                <label>Domicilio Fiscal (AFIP)</label>
+                <input 
+                  type="text" 
+                  placeholder="Domicilio Autocompletado" 
+                  value={quickAddress}
+                  onChange={(e) => setQuickAddress(e.target.value)}
+                  readOnly={!quickAddress}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Asignar Cuenta de Gasto</label>
+                <select 
+                  value={quickAccount}
+                  onChange={(e) => setQuickAccount(e.target.value)}
+                >
+                  {accounts.map(acc => (
+                    <option key={acc.code} value={acc.code}>
+                      {acc.code} - {acc.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <button 
                 type="button" 
                 onClick={handleRegisterQuickSupplier}
                 className="btn btn-primary"
                 disabled={!quickName}
-                style={{ width: '100%' }}
+                style={{ width: '100%', marginTop: '6px' }}
               >
-                <span>Vincular Proveedor</span>
+                <span>Crear Ficha y Registrar</span>
               </button>
             </div>
           </div>

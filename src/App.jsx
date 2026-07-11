@@ -2,31 +2,87 @@ import React, { useState, useEffect } from 'react';
 import Auth from './components/Auth';
 import Header from './components/Header';
 import Dashboard from './components/Dashboard';
+import Suppliers from './components/Suppliers';
+import Accounts from './components/Accounts';
 import History from './components/History';
 
 export default function App() {
   const [tenant, setTenant] = useState(null);
+  const [currentView, setCurrentView] = useState('dashboard'); // dashboard, suppliers, accounts, history
+  
   const [history, setHistory] = useState([]);
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [suppliers, setSuppliers] = useState([]);
+  const [accounts, setAccounts] = useState([]);
 
-  // Load tenant and history on startup
+  // Load tenant session and initial data databases on startup
   useEffect(() => {
+    // 1. Session load
     const savedTenant = localStorage.getItem('zerostaff_active_tenant');
     if (savedTenant) {
       setTenant(JSON.parse(savedTenant));
     }
 
+    // 2. Chart of Accounts load / default
+    const savedAccounts = localStorage.getItem('zerostaff_accounts');
+    if (savedAccounts) {
+      setAccounts(JSON.parse(savedAccounts));
+    } else {
+      const defaultAccounts = [
+        { code: '6101', name: 'Compra de Mercadería e Insumos', category: 'Costos de Explotación' },
+        { code: '6102', name: 'Gastos de Oficina y Papelería', category: 'Gastos Generales' },
+        { code: '6103', name: 'Servicios Públicos (Luz, Agua, Gas)', category: 'Servicios y Suministros' },
+        { code: '6104', name: 'Internet y Telecomunicaciones', category: 'Servicios y Suministros' },
+        { code: '6105', name: 'Honorarios Profesionales', category: 'Honorarios y Comisiones' },
+        { code: '6106', name: 'Mantenimiento y Reparaciones', category: 'Gastos Generales' },
+        { code: '6107', name: 'Gastos de Logística y Fletes', category: 'Costos de Explotación' }
+      ];
+      setAccounts(defaultAccounts);
+      localStorage.setItem('zerostaff_accounts', JSON.stringify(defaultAccounts));
+    }
+
+    // 3. Supplier list load / default
+    const savedSuppliers = localStorage.getItem('zerostaff_suppliers');
+    if (savedSuppliers) {
+      setSuppliers(JSON.parse(savedSuppliers));
+    } else {
+      const defaultSuppliers = [
+        {
+          cuit: '30711261599',
+          name: 'DISTRIBUIDORA MUSTANG SRL',
+          address: 'Av. Directorio 456, CABA',
+          taxCondition: 'Responsable Inscripto',
+          defaultAccount: '6101'
+        },
+        {
+          cuit: '30639453738',
+          name: 'TELECOM ARGENTINA S.A.',
+          address: 'Alicia Moreau de Justo 50, CABA',
+          taxCondition: 'Responsable Inscripto',
+          defaultAccount: '6104'
+        },
+        {
+          cuit: '33711261599',
+          name: 'BRAI SRL',
+          address: 'Av. Corrientes 1234, CABA',
+          taxCondition: 'Responsable Inscripto',
+          defaultAccount: '6102'
+        }
+      ];
+      setSuppliers(defaultSuppliers);
+      localStorage.setItem('zerostaff_suppliers', JSON.stringify(defaultSuppliers));
+    }
+
+    // 4. Invoice History load / default
     const savedHistory = localStorage.getItem('zerostaff_invoice_history');
     if (savedHistory) {
       setHistory(JSON.parse(savedHistory));
     } else {
-      // Pre-fill history with dummy data for immediate demo value
-      const mockHistory = [
+      const defaultHistory = [
         {
           timestamp: Date.now() - 36 * 3600 * 1000,
-          invoiceId: '6628',
+          invoiceId: 'inv_1',
           supplierName: 'DISTRIBUIDORA MUSTANG SRL',
-          supplierCuit: '30-71126159-9',
+          supplierCuit: '30711261599',
           invoiceType: '1',
           invoiceTypeName: 'Factura A',
           posNumber: '00099-23125412',
@@ -37,14 +93,14 @@ export default function App() {
           percIva: 0.00,
           percIibb: 0.00,
           percOtros: 0.00,
-          payType: 'efectivo',
+          payType: 'cta_cte',
           isDemoMode: true
         },
         {
           timestamp: Date.now() - 72 * 3600 * 1000,
-          invoiceId: '6630',
+          invoiceId: 'inv_2',
           supplierName: 'TELECOM ARGENTINA S.A.',
-          supplierCuit: '30-63945373-8',
+          supplierCuit: '30639453738',
           invoiceType: '2',
           invoiceTypeName: 'Factura B',
           posNumber: '00004-92837493',
@@ -59,8 +115,8 @@ export default function App() {
           isDemoMode: true
         }
       ];
-      setHistory(mockHistory);
-      localStorage.setItem('zerostaff_invoice_history', JSON.stringify(mockHistory));
+      setHistory(defaultHistory);
+      localStorage.setItem('zerostaff_invoice_history', JSON.stringify(defaultHistory));
     }
   }, []);
 
@@ -71,6 +127,7 @@ export default function App() {
   const handleLogout = () => {
     localStorage.removeItem('zerostaff_active_tenant');
     setTenant(null);
+    setCurrentView('dashboard');
   };
 
   const handleAddInvoice = (newInvoice) => {
@@ -78,7 +135,7 @@ export default function App() {
     setHistory(updatedHistory);
     localStorage.setItem('zerostaff_invoice_history', JSON.stringify(updatedHistory));
 
-    // Increment AI scan quota
+    // Update IA scan usage quota stats
     if (tenant) {
       const updatedTenant = {
         ...tenant,
@@ -89,13 +146,24 @@ export default function App() {
     }
   };
 
+  const handleAddSupplier = (newSup) => {
+    const updatedSuppliers = [newSup, ...suppliers];
+    setSuppliers(updatedSuppliers);
+    localStorage.setItem('zerostaff_suppliers', JSON.stringify(updatedSuppliers));
+  };
+
+  const handleAddAccount = (newAcc) => {
+    const updatedAccounts = [...accounts, newAcc];
+    setAccounts(updatedAccounts);
+    localStorage.setItem('zerostaff_accounts', JSON.stringify(updatedAccounts));
+  };
+
   // AFIP Text files exporter (COMPRAS_CBTE & COMPRAS_ALICUOTAS)
   const handleExportAfip = (filteredHistory) => {
     try {
       let cbteLines = [];
       let alicLines = [];
 
-      // Helper formatting functions
       const padNum = (num, length) => String(num || 0).replace(/\D/g, '').padStart(length, '0');
       const padText = (text, length) => String(text || '').substring(0, length).padEnd(length, ' ');
       
@@ -210,7 +278,7 @@ export default function App() {
         return;
       }
 
-      // Download files
+      // Trigger download
       const cbteText = cbteLines.join('\r\n');
       const alicText = alicLines.join('\r\n');
 
@@ -241,26 +309,49 @@ export default function App() {
   return (
     <div className="app-container">
       
-      {/* Header */}
+      {/* Header with Navigation tabs */}
       <Header 
         tenant={tenant} 
+        currentView={currentView}
+        onViewChange={setCurrentView}
         onLogout={handleLogout} 
-        onOpenHistory={() => setIsHistoryOpen(true)} 
       />
 
-      {/* Main Workspace Dashboard */}
-      <Dashboard 
-        tenant={tenant} 
-        onAddInvoice={handleAddInvoice} 
-      />
+      {/* Main views rendering */}
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        {currentView === 'dashboard' && (
+          <Dashboard 
+            tenant={tenant} 
+            suppliers={suppliers}
+            accounts={accounts}
+            onAddInvoice={handleAddInvoice} 
+            onAddSupplier={handleAddSupplier}
+          />
+        )}
 
-      {/* Standalone History and AFIP Exporter Modal */}
-      <History 
-        isOpen={isHistoryOpen} 
-        onClose={() => setIsHistoryOpen(false)} 
-        history={history}
-        onExportAfip={handleExportAfip}
-      />
+        {currentView === 'suppliers' && (
+          <Suppliers 
+            suppliers={suppliers} 
+            accounts={accounts}
+            onAddSupplier={handleAddSupplier}
+          />
+        )}
+
+        {currentView === 'accounts' && (
+          <Accounts 
+            accounts={accounts} 
+            onAddAccount={handleAddAccount}
+          />
+        )}
+
+        {currentView === 'history' && (
+          <History 
+            isFullPage={true} 
+            history={history} 
+            onExportAfip={handleExportAfip} 
+          />
+        )}
+      </main>
 
     </div>
   );
